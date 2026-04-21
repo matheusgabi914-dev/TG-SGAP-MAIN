@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SGAP - Sistema de Gestão e Aplicação de Produtos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Loading spinner */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="text-gray-800 antialiased min-h-screen flex flex-col">
+
+    <!-- Container Principal do App -->
+    <div id="app-container" class="w-full h-screen flex"></div>
+
+    <!-- Scripts de Lógica e Renderização -->
+    <script>
+        // --- 1. MOCK DATA & ESTADO DO SISTEMA ---
+        const DB = {
+            users: [
+                { id: 1, nome: "Inspetor Chefe", rg: "111.111.111-11", senha: "admin", nivel: 3, bloqueado: false, foto: "", associacao: "Governo Federal", local: "Brasília/DF", criacao: "2023-01-10" },
+                { id: 2, nome: "Agente Silva", rg: "222.222.222-22", senha: "123", nivel: 2, bloqueado: false, foto: "", associacao: "Polícia Civil", local: "São Paulo/SP", criacao: "2023-05-20" },
+                { id: 3, nome: "Operador Suspeito", rg: "333.333.333-33", senha: "123", nivel: 1, bloqueado: false, foto: "", associacao: "Empresa Local X", local: "Rio de Janeiro/RJ", criacao: "2023-10-05" }
+            ],
+            associacoes: [
+                { id: 1, nome: "Governo Federal (Receita)", ramo: "Governamental", lucrativo: false, localFundacao: "Brasília", lider: "Ministro da Fazenda", localOperacao: "Nacional", preCadastrado: true },
+                { id: 2, nome: "ONG Vida Tech", ramo: "Educação Tecnológica", lucrativo: false, localFundacao: "São Paulo", lider: "Maria Oliveira", localOperacao: "São Paulo", preCadastrado: false }
+            ],
+            produtos: [
+                { id: 101, nome: "Lote de Notebooks Dell", classificacao: "Eletrônico", localizacao: "Galpão Central - SP", dataApreensao: "2024-03-15", motivo: "Descaminho", emLote: true, quantidade: 50, destino: null },
+                { id: 102, nome: "Caminhão de Bebidas Destiladas", classificacao: "Bebida", localizacao: "Pátio Receita - PR", dataApreensao: "2024-04-10", motivo: "Falsificação", emLote: true, quantidade: 5000, destino: { local: "Destruição/Reciclagem PR", funcao: "Descarte ecológico", usuarioId: 2, associacao: "Polícia Civil", periodoChecagem: "Único" } }
+            ],
+            logs: [
+                { id: 1, dataHora: "2024-04-20 08:00", usuarioNome: "Inspetor Chefe", acao: "Login no sistema via IP 192.168.0.1", tipo: "Acesso" },
+                { id: 2, dataHora: "2024-04-20 09:30", usuarioNome: "Agente Silva", acao: "Atribuiu destino ao produto ID 102", tipo: "Destinação" }
+            ]
+        };
+
+        const state = {
+            currentUser: null,
+            currentView: 'login', // login, dashboard, usuarios, associacoes, produtos, destinacao, auditoria
+            toast: null
+        };
+
+        // --- 2. FUNÇÕES DE UTILIDADE ---
+        function showToast(message, type = 'success') {
+            const colors = type === 'success' ? 'bg-green-500' : 'bg-red-500';
+            const toastHtml = `
+                <div id="toast" class="fixed bottom-4 right-4 ${colors} text-white px-6 py-3 rounded shadow-lg transform transition-transform duration-300 translate-y-0 z-50 flex items-center gap-2">
+                    <i data-lucide="${type === 'success' ? 'check-circle' : 'alert-circle'}"></i>
+                    ${message}
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', toastHtml);
+            lucide.createIcons();
+            setTimeout(() => {
+                const t = document.getElementById('toast');
+                if(t) {
+                    t.classList.add('translate-y-20', 'opacity-0');
+                    setTimeout(() => t.remove(), 300);
+                }
+            }, 3000);
+        }
+
+        function logActivity(acao, tipo) {
+            if(!state.currentUser) return;
+            const now = new Date();
+            const formattedDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+            DB.logs.unshift({
+                id: DB.logs.length + 1,
+                dataHora: formattedDate,
+                usuarioNome: state.currentUser.nome,
+                acao: acao,
+                tipo: tipo
+            });
+        }
+
+        function navigate(view) {
+            state.currentView = view;
+            render();
+        }
+
+        function getLevelName(level) {
+            if(level === 3) return "Alto (Admin)";
+            if(level === 2) return "Médio (Agente)";
+            return "Baixo (Operador)";
+        }
+
+        function getLevelBadge(level) {
+            if(level === 3) return `<span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded border border-red-200">Alto</span>`;
+            if(level === 2) return `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded border border-yellow-200">Médio</span>`;
+            return `<span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded border border-green-200">Baixo</span>`;
+        }
+
+        // --- 3. RENDERIZAÇÃO DE TELAS ---
+
+        function renderLogin() {
+            return `
+                <div class="flex w-full h-full bg-slate-900 items-center justify-center p-4">
+                    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+                        <div class="bg-slate-800 p-6 text-center text-white">
+                            <div class="mx-auto w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center mb-4 shadow-lg">
+                                <i data-lucide="shield-check" class="w-8 h-8 text-white"></i>
+                            </div>
+                            <h1 class="text-2xl font-bold">SGAP</h1>
+                            <p class="text-slate-300 text-sm mt-1">Gestão de Produtos Apreendidos</p>
+                        </div>
+                        <div class="p-8">
+                            <form id="loginForm" class="space-y-5" onsubmit="handleLogin(event)">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Documento (RG/CPF)</label>
+                                    <div class="relative">
+                                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                            <i data-lucide="user" class="h-5 w-5 text-gray-400"></i>
+                                        </div>
+                                        <input type="text" id="loginDoc" required class="pl-10 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="Ex: 111.111.111-11">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Senha do Sistema</label>
+                                    <div class="relative">
+                                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                            <i data-lucide="lock" class="h-5 w-5 text-gray-400"></i>
+                                        </div>
+                                        <input type="password" id="loginSenha" required class="pl-10 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="••••••••">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1 flex justify-between">
+                                        <span>Código 2FA (Obrigatório)</span>
+                                        <span class="text-xs text-blue-500">App Autenticador</span>
+                                    </label>
+                                    <div class="relative">
+                                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                            <i data-lucide="smartphone" class="h-5 w-5 text-gray-400"></i>
+                                        </div>
+                                        <input type="text" id="login2fa" required class="pl-10 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="Ex: 123456" value="123456">
+                                    </div>
+                                    <p class="mt-1 text-xs text-gray-500">Para testes, qualquer código funciona.</p>
+                                </div>
+                                
+                                <div class="flex items-center justify-between mt-4">
+                                    <a href="#" onclick="alert('Processo rígido: Contate a administração central para recuperação presencial.')" class="text-sm font-medium text-blue-600 hover:text-blue-500">Esqueceu a senha?</a>
+                                </div>
+
+                                <button type="submit" id="btn-login" class="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 mt-6 transition-colors">
+                                    Acessar Sistema
+                                </button>
+                            </form>
+                            
+                            <div class="mt-6 bg-slate-50 border border-slate-200 rounded p-3 text-xs text-slate-600">
+                                <p class="font-bold mb-1">Contas de Teste:</p>
+                                <p>Admin (Nível 3): RG: 111.111.111-11 | Senha: admin</p>
+                                <p>Agente (Nível 2): RG: 222.222.222-22 | Senha: 123</p>
+                                <p>Operador (Nível 1): RG: 333.333.333-33 | Senha: 123</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSidebar() {
+            const userLevel = state.currentUser.nivel;
+            return `
+                <div class="w-64 bg-slate-900 text-white flex flex-col h-full shadow-xl z-10 transition-all duration-300">
+                    <div class="p-5 flex items-center gap-3 border-b border-slate-800">
+                        <div class="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center shadow-inner">
+                            <i data-lucide="shield" class="text-white"></i>
+                        </div>
+                        <div>
+                            <h2 class="font-bold text-lg tracking-wide">SGAP</h2>
+                            <p class="text-xs text-slate-400">GovSystem v2.5</p>
+                        </div>
+                    </div>
+                    
+                    <div class="p-4 border-b border-slate-800">
+                        <p class="text-sm font-medium text-slate-200 truncate">${state.currentUser.nome}</p>
+                        <p class="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                            <span class="w-2 h-2 rounded-full bg-green-500"></span> Online | Nível ${state.currentUser.nivel}
+                        </p>
+                    </div>
+
+                    <nav class="flex-1 overflow-y-auto py-4 space-y-1 px-3 hide-scroll">
+                        <a href="#" onclick="navigate('dashboard')" class="${state.currentView === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'} group flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors">
+                            <i data-lucide="layout-dashboard" class="mr-3 h-5 w-5 ${state.currentView === 'dashboard' ? 'text-white' : 'text-slate-400 group-hover:text-white'}"></i>
+                            Painel de Controle
+                        </a>
+                        
+                        ${userLevel >= 2 ? `
+                        <div class="pt-4 pb-2">
+                            <p class="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Gestão de Bens</p>
+                        </div>
+                        <a href="#" onclick="navigate('produtos')" class="${state.currentView === 'produtos' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'} group flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors">
+                            <i data-lucide="package" class="mr-3 h-5 w-5 ${state.currentView === 'produtos' ? 'text-white' : 'text-slate-400 group-hover:text-white'}"></i>
+                            Produtos Apreendidos
+                        </a>
+                        <a href="#" onclick="navigate('destinacao')" class="${state.currentView === 'destinacao' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'} group flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors">
+                            <i data-lucide="arrow-right-left" class="mr-3 h-5 w-5 ${state.currentView === 'destinacao' ? 'text-white' : 'text-slate-400 group-hover:text-white'}"></i>
+                            Destinações Ativas
+                        </a>
+                        ` : ''}
+
+                        ${userLevel <= 1 ? `
+                        <div class="pt-4 pb-2">
+                            <p class="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Gestão de Bens</p>
+                        </div>
+                        <a href="#" onclick="navigate('destinacao')" class="${state.currentView === 'destinacao' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'} group flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors">
+                            <i data-lucide="arrow-right-left" class="mr-3 h-5 w-5 ${state.currentView === 'destinacao' ? 'text-white' : 'text-slate-400 group-hover:text-white'}"></i>
+                            Destinações Ativas
+                        </a>
+                        ` : ''}
+
+                        ${userLevel >= 2 ? `
+                        <div class="pt-4 pb-2">
+                            <p class="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Cadastros Base</p>
+                        </div>
+                        <a href="#" onclick="navigate('associacoes')" class="${state.currentView === 'associacoes' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'} group flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors">
+                            <i data-lucide="building-2" class="mr-3 h-5 w-5 ${state.currentView === 'associacoes' ? 'text-white' : 'text-slate-400 group-hover:text-white'}"></i>
+                            Associações / Órgãos
+                        </a>
+                        ` : ''}
+
+                        ${userLevel <= 1 ? `
+                        <div class="pt-4 pb-2">
+                            <p class="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Cadastros Base</p>
+                        </div>
+                        <a href="#" onclick="navigate('associacoes')" class="${state.currentView === 'associacoes' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'} group flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors">
+                            <i data-lucide="building-2" class="mr-3 h-5 w-5 ${state.currentView === 'associacoes' ? 'text-white' : 'text-slate-400 group-hover:text-white'}"></i>
+                            Associações / Órgãos
+                        </a>
+                        ` : ''}
+
+                        ${userLevel === 3 ? `
+                        <div class="pt-4 pb-2">
+                            <p class="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Administração</p>
+                        </div>
+                        <a href="#" onclick="navigate('usuarios')" class="${state.currentView === 'usuarios' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'} group flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors">
+                            <i data-lucide="users" class="mr-3 h-5 w-5 ${state.currentView === 'usuarios' ? 'text-white' : 'text-slate-400 group-hover:text-white'}"></i>
+                            Controle de Usuários
+                        </a>
+                        <a href="#" onclick="navigate('auditoria')" class="${state.currentView === 'auditoria' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'} group flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors">
+                            <i data-lucide="clipboard-list" class="mr-3 h-5 w-5 ${state.currentView === 'auditoria' ? 'text-white' : 'text-slate-400 group-hover:text-white'}"></i>
+                            Auditoria / Logs
+                        </a>
+                        ` : ''}
+                    </nav>
+                    
+                    <div class="p-4 bg-slate-950">
+                        <button onclick="handleLogout()" class="w-full flex items-center justify-center gap-2 px-4 py-2 border border-slate-700 rounded-md text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors">
+                            <i data-lucide="log-out" class="h-4 w-4"></i> Encerrar Sessão
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderTopbar(title) {
+            return `
+                <header class="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-10">
+                    <div class="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+                        <h1 class="text-xl font-semibold text-gray-900">${title}</h1>
+                        <div class="flex items-center gap-4">
+                            <button class="text-gray-400 hover:text-gray-500">
+                                <i data-lucide="bell" class="h-6 w-6"></i>
+                            </button>
+                            <div class="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold border border-blue-200">
+                                ${state.currentUser.nome.charAt(0)}
+                            </div>
+                        </div>
+                    </div>
+                </header>
+            `;
+        }
+
+        function renderDashboard() {
+            const userLevel = state.currentUser.nivel;
+            const totalProdutos = DB.produtos.length;
+            const produtosDestinados = DB.produtos.filter(p => p.destino).length;
+            
+            return `
+                <div class="flex-1 flex flex-col h-full bg-gray-50 overflow-hidden">
+                    ${renderTopbar('Painel de Controle')}
+                    <main class="flex-1 overflow-y-auto p-6">
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                            <div class="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-500 uppercase">Total de Produtos</p>
+                                        <p class="text-3xl font-bold text-gray-900 mt-1">${totalProdutos}</p>
+                                    </div>
+                                    <div class="p-3 bg-blue-50 rounded-full text-blue-600">
+                                        <i data-lucide="package-search" class="w-8 h-8"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-500 uppercase">Produtos Destinados</p>
+                                        <p class="text-3xl font-bold text-gray-900 mt-1">${produtosDestinados}</p>
+                                    </div>
+                                    <div class="p-3 bg-green-50 rounded-full text-green-600">
+                                        <i data-lucide="check-circle-2" class="w-8 h-8"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-6 border-l-4 border-purple-500">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-500 uppercase">Associações Ativas</p>
+                                        <p class="text-3xl font-bold text-gray-900 mt-1">${DB.associacoes.length}</p>
+                                    </div>
+                                    <div class="p-3 bg-purple-50 rounded-full text-purple-600">
+                                        <i data-lucide="building" class="w-8 h-8"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        ${userLevel === 3 ? `
+                        <div class="bg-white rounded-lg shadow overflow-hidden">
+                            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                                <h3 class="text-lg leading-6 font-medium text-gray-900">Atividades Recentes do Sistema</h3>
+                            </div>
+                            <div class="divide-y divide-gray-200">
+                                ${DB.logs.slice(0, 5).map(log => `
+                                    <div class="px-6 py-4 flex items-center justify-between hover:bg-gray-50">
+                                        <div class="flex items-center gap-4">
+                                            <div class="w-2 h-2 rounded-full ${log.tipo === 'Acesso' ? 'bg-blue-400' : log.tipo === 'Bloqueio' ? 'bg-red-500' : 'bg-green-500'}"></div>
+                                            <div>
+                                                <p class="text-sm font-medium text-gray-900">${log.usuarioNome}</p>
+                                                <p class="text-sm text-gray-500">${log.acao}</p>
+                                            </div>
+                                        </div>
+                                        <div class="text-sm text-gray-400 whitespace-nowrap">
+                                            ${log.dataHora}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <div class="px-6 py-3 bg-gray-50 border-t border-gray-200 text-right">
+                                <a href="#" onclick="navigate('auditoria')" class="text-sm font-medium text-blue-600 hover:text-blue-500">Ver todos os logs &rarr;</a>
+                            </div>
+                        </div>
+                        ` : `
+                        <div class="bg-white rounded-lg shadow p-6 text-center">
+                            <i data-lucide="shield-alert" class="mx-auto h-12 w-12 text-gray-400 mb-4"></i>
+                            <h3 class="text-lg font-medium text-gray-900">Área de Operação Restrita</h3>
+                            <p class="mt-1 text-sm text-gray-500">Bem-vindo, ${state.currentUser.nome}. Utilize o menu lateral para acessar as funções permitidas para o seu nível de acesso.</p>
+                        </div>
+                        `}
+
+                    </main>
+                </div>
+            `;
+        }
+
+        function renderUsuarios() {
+            if(state.currentUser.nivel < 3) return renderDashboard(); // Proteção
+            
+            return `
+                <div class="flex-1 flex flex-col h-full bg-gray-50 overflow-hidden">
+                    ${renderTopbar('Controle de Usuários')}
+                    <main class="flex-1 overflow-y-auto p-6">
+                        
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-lg font-medium text-gray-900">Gerenciamento de Contas</h2>
+                            <button onclick="document.getElementById('modalUser').classList.remove('hidden')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
+                                <i data-lucide="user-plus" class="w-4 h-4"></i> Novo Usuário
+                            </button>
+                        </div>
+
+                        <div class="bg-white shadow rounded-lg overflow-hidden border border-gray-200">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuário / Documento</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Associação / Local</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nível de Acesso</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                        <th scope="col" class="relative px-6 py-3"><span class="sr-only">Ações</span></th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    ${DB.users.map(u => `
+                                        <tr>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="flex items-center">
+                                                    <div class="flex-shrink-0 h-10 w-10 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden">
+                                                        ${u.foto ? `<img src="${u.foto}" class="h-10 w-10 rounded-full">` : `<i data-lucide="user" class="h-5 w-5 text-gray-500"></i>`}
+                                                    </div>
+                                                    <div class="ml-4">
+                                                        <div class="text-sm font-medium text-gray-900">${u.nome}</div>
+                                                        <div class="text-sm text-gray-500">${u.rg}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="text-sm text-gray-900">${u.associacao}</div>
+                                                <div class="text-sm text-gray-500">${u.local}</div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                ${getLevelBadge(u.nivel)}
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                ${u.bloqueado 
+                                                    ? `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">Bloqueado</span>`
+                                                    : `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Ativo</span>`
+                                                }
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                ${u.id !== state.currentUser.id ? `
+                                                    <button onclick="toggleBlockUser(${u.id})" class="text-${u.bloqueado ? 'green' : 'red'}-600 hover:text-${u.bloqueado ? 'green' : 'red'}-900 flex items-center gap-1 ml-auto">
+                                                        <i data-lucide="${u.bloqueado ? 'unlock' : 'lock'}" class="w-4 h-4"></i> ${u.bloqueado ? 'Desbloquear' : 'Bloquear'}
+                                                    </button>
+                                                ` : '<span class="text-gray-400 text-xs italic">Você</span>'}
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </main>
+
+                    <!-- Modal Cadastro Usuário -->
+                    <div id="modalUser" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+                        <div class="bg-white p-6 border rounded-lg shadow-xl w-full max-w-2xl">
+                            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                                <h3 class="text-lg font-medium text-gray-900">Cadastrar Novo Usuário</h3>
+                                <button onclick="document.getElementById('modalUser').classList.add('hidden')" class="text-gray-400 hover:text-gray-500"><i data-lucide="x"></i></button>
+                            </div>
+                            <form onsubmit="handleCreateUser(event)" class="space-y-4">
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Nome Completo</label>
+                                        <input type="text" id="nu-nome" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">RG / Documento</label>
+                                        <input type="text" id="nu-rg" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Data de Nascimento</label>
+                                        <input type="date" id="nu-data" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Nível de Acesso</label>
+                                        <select id="nu-nivel" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                            <option value="1">Baixo (Operador de campo)</option>
+                                            <option value="2">Médio (Agente destinação)</option>
+                                            <option value="3">Alto (Administrador completo)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Associação Pertencente</label>
+                                        <select id="nu-assoc" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                            <option value="Nenhuma">Nenhuma</option>
+                                            ${DB.associacoes.map(a => `<option value="${a.nome}">${a.nome}</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Local de Residência/Base</label>
+                                        <input type="text" id="nu-local" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm" placeholder="Cidade/UF">
+                                    </div>
+                                    <div class="col-span-2">
+                                        <label class="block text-sm font-medium text-gray-700">Foto do Rosto (URL ou deixe vazio)</label>
+                                        <input type="text" id="nu-foto" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm" placeholder="https://...">
+                                        <p class="text-xs text-gray-500 mt-1">O sistema gerará uma senha inicial provisória e forçará configuração 2FA.</p>
+                                    </div>
+                                </div>
+                                <div class="mt-5 flex justify-end gap-3 pt-4 border-t">
+                                    <button type="button" onclick="document.getElementById('modalUser').classList.add('hidden')" class="bg-white border border-gray-300 rounded-md shadow-sm py-2 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>
+                                    <button type="submit" class="bg-blue-600 border border-transparent rounded-md shadow-sm py-2 px-4 text-sm font-medium text-white hover:bg-blue-700">Salvar Usuário</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderProdutos() {
+            if(state.currentUser.nivel < 2) return renderDashboard(); // Proteção (Apenas niveis médios/altos veem ou destinam)
+            
+            return `
+                <div class="flex-1 flex flex-col h-full bg-gray-50 overflow-hidden">
+                    ${renderTopbar('Produtos Apreendidos')}
+                    <main class="flex-1 overflow-y-auto p-6">
+                        
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-lg font-medium text-gray-900">Catálogo de Bens</h2>
+                            <button onclick="document.getElementById('modalProduto').classList.remove('hidden')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
+                                <i data-lucide="plus-circle" class="w-4 h-4"></i> Registrar Apreensão
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                            ${DB.produtos.map(p => `
+                                <div class="bg-white overflow-hidden shadow rounded-lg border ${p.destino ? 'border-green-200' : 'border-gray-200'}">
+                                    <div class="px-4 py-5 sm:p-6">
+                                        <div class="flex items-center justify-between mb-2">
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${p.destino ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+                                                ${p.destino ? 'Destinado' : 'Em Depósito'}
+                                            </span>
+                                            <span class="text-xs text-gray-500">ID: #${p.id}</span>
+                                        </div>
+                                        <h3 class="text-lg leading-6 font-medium text-gray-900 truncate">${p.nome}</h3>
+                                        <p class="text-sm text-gray-500 mt-1 flex items-center gap-1"><i data-lucide="tag" class="w-3 h-3"></i> ${p.classificacao} ${p.emLote ? `(Lote: ${p.quantidade} un)` : ''}</p>
+                                        
+                                        <div class="mt-4 space-y-2">
+                                            <p class="text-sm text-gray-600 flex items-start gap-2"><i data-lucide="map-pin" class="w-4 h-4 text-gray-400 mt-0.5"></i> ${p.localizacao}</p>
+                                            <p class="text-sm text-gray-600 flex items-start gap-2"><i data-lucide="calendar" class="w-4 h-4 text-gray-400 mt-0.5"></i> Apreendido em: ${p.dataApreensao}</p>
+                                            <p class="text-sm text-gray-600 flex items-start gap-2"><i data-lucide="info" class="w-4 h-4 text-gray-400 mt-0.5"></i> Motivo: ${p.motivo}</p>
+                                        </div>
+                                    </div>
+                                    <div class="bg-gray-50 px-4 py-4 sm:px-6 border-t border-gray-200">
+                                         ${!p.destino ? `
+                                            <button onclick="openDestinacaoModal(${p.id})" class="w-full flex justify-center items-center gap-2 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
+                                                <i data-lucide="send" class="w-4 h-4"></i> Atribuir Destinação
+                                            </button>
+                                        ` : `
+                                            <button onclick="openViewDestinoModal(${p.id})" class="w-full flex justify-center items-center gap-2 py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+                                                <i data-lucide="eye" class="w-4 h-4 text-gray-500"></i> Ver Detalhes do Destino
+                                            </button>
+                                        `}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </main>
+                    
+                    <!-- Modal Detalhes do Destino (Novo) -->
+                    <div id="modalViewDestino" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-[60] flex items-center justify-center">
+                        <div class="bg-white p-0 border rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
+                            <div class="bg-indigo-600 p-4 flex justify-between items-center text-white">
+                                <h3 class="font-bold flex items-center gap-2"><i data-lucide="info"></i> Detalhes da Destinação</h3>
+                                <button onclick="document.getElementById('modalViewDestino').classList.add('hidden')"><i data-lucide="x" class="w-5 h-5"></i></button>
+                            </div>
+                            <div class="p-6 space-y-4" id="viewDestinoContent">
+                                <!-- Preenchido via JS -->
+                            </div>
+                            <div class="bg-gray-50 p-4 flex justify-end">
+                                <button onclick="document.getElementById('modalViewDestino').classList.add('hidden')" class="px-4 py-2 bg-gray-200 rounded-md text-sm font-medium hover:bg-gray-300">Fechar</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Modal Cadastro Produto -->
+                    <div id="modalProduto" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+                         <div class="bg-white p-6 border rounded-lg shadow-xl w-full max-w-2xl">
+                            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                                <h3 class="text-lg font-medium text-gray-900">Registrar Produto Apreendido</h3>
+                                <button onclick="document.getElementById('modalProduto').classList.add('hidden')" class="text-gray-400 hover:text-gray-500"><i data-lucide="x"></i></button>
+                            </div>
+                            <form onsubmit="handleCreateProduto(event)" class="space-y-4">
+                                <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <label class="block text-sm font-medium text-gray-700">Entrada de Dados</label>
+                                        <span class="text-xs text-blue-600 flex items-center gap-1 cursor-pointer" onclick="alert('Simulação: Conectando com Banco de Dados Governamental... Preenchimento automático ativado.')"><i data-lucide="database" class="w-3 h-3"></i> Sincronizar Base Auto</span>
+                                    </div>
+                                    <hr class="mb-4">
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div class="col-span-2">
+                                        <label class="block text-sm font-medium text-gray-700">Nome/Descrição do Item</label>
+                                        <input type="text" id="np-nome" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm" placeholder="Ex: Lote de Smartphones">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Classificação</label>
+                                        <select id="np-class" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                            <option>Eletrônico</option><option>Bebida</option><option>Veículo</option><option>Vestuário</option><option>Outros</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Data de Apreensão</label>
+                                        <input type="date" id="np-data" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                    </div>
+                                    <div class="col-span-2">
+                                        <label class="block text-sm font-medium text-gray-700">Localização Atual</label>
+                                        <input type="text" id="np-local" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm" placeholder="Galpão/Depósito atual">
+                                    </div>
+                                    <div class="col-span-2">
+                                        <label class="block text-sm font-medium text-gray-700">Motivo de Apreensão</label>
+                                        <input type="text" id="np-motivo" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                    </div>
+                                    <div class="flex items-center mt-4">
+                                        <input type="checkbox" id="np-lote" onchange="document.getElementById('np-qtd-container').classList.toggle('hidden', !this.checked)" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                                        <label class="ml-2 block text-sm text-gray-900">É um Lote?</label>
+                                    </div>
+                                    <div id="np-qtd-container" class="hidden">
+                                        <label class="block text-sm font-medium text-gray-700">Quantidade</label>
+                                        <input type="number" id="np-qtd" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                    </div>
+                                </div>
+                                <div class="mt-5 flex justify-end gap-3 pt-4 border-t">
+                                    <button type="button" onclick="document.getElementById('modalProduto').classList.add('hidden')" class="bg-white border border-gray-300 rounded-md shadow-sm py-2 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>
+                                    <button type="submit" class="bg-blue-600 border border-transparent rounded-md shadow-sm py-2 px-4 text-sm font-medium text-white hover:bg-blue-700">Registrar</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Modal Destinação -->
+                    <div id="modalDestino" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+                         <div class="bg-white p-6 border rounded-lg shadow-xl w-full max-w-2xl">
+                            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                                <h3 class="text-lg font-medium text-gray-900">Atribuir Destinação de Bem</h3>
+                                <button onclick="document.getElementById('modalDestino').classList.add('hidden')" class="text-gray-400 hover:text-gray-500"><i data-lucide="x"></i></button>
+                            </div>
+                            <form onsubmit="handleAtribuirDestino(event)" class="space-y-4">
+                                <input type="hidden" id="nd-prodId">
+                                <div class="bg-gray-50 p-3 rounded text-sm mb-4 border" id="nd-prodInfo"></div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Função da Destinação (Propósito)</label>
+                                    <input type="text" id="nd-funcao" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm" placeholder="Ex: Transformação em terminal de consulta, Doação, Destruição...">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Local de Destino (Para onde será enviado)</label>
+                                    <input type="text" id="nd-local" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Atribuir ao Usuário/Responsável</label>
+                                        <select id="nd-user" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                            <option value="">Selecione...</option>
+                                            ${DB.users.filter(u => !u.bloqueado).map(u => `<option value="${u.id}">${u.nome} (${u.associacao})</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Período de Checagem/Auditoria</label>
+                                        <select id="nd-periodo" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                            <option>Semanal</option><option>Mensal</option><option>Semestral</option><option>Anual</option><option>Único (Consumo/Descarte)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="mt-5 flex justify-end gap-3 pt-4 border-t">
+                                    <button type="button" onclick="document.getElementById('modalDestino').classList.add('hidden')" class="bg-white border border-gray-300 rounded-md shadow-sm py-2 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>
+                                    <button type="submit" class="bg-indigo-600 border border-transparent rounded-md shadow-sm py-2 px-4 text-sm font-medium text-white hover:bg-indigo-700">Confirmar Destinação</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAssociacoes() {
+            if(state.currentUser.nivel < 2) return renderDashboard();
+            
+            return `
+                <div class="flex-1 flex flex-col h-full bg-gray-50 overflow-hidden">
+                    ${renderTopbar('Associações / Órgãos')}
+                    <main class="flex-1 overflow-y-auto p-6">
+                        
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-lg font-medium text-gray-900">Diretório de Instituições</h2>
+                            <button onclick="document.getElementById('modalAssociacao').classList.remove('hidden')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
+                                <i data-lucide="building-2" class="w-4 h-4"></i> Cadastrar Associação
+                            </button>
+                        </div>
+
+                        <div class="bg-white shadow rounded-lg overflow-hidden border border-gray-200">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome da Instituição</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Líder / Responsável</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ramo de Atuação</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Localidade</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Origem</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    ${DB.associacoes.map(a => `
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="flex items-center">
+                                                    <div class="flex-shrink-0 h-10 w-10 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-700">
+                                                        <i data-lucide="building" class="w-5 h-5"></i>
+                                                    </div>
+                                                    <div class="ml-4">
+                                                        <div class="text-sm font-medium text-gray-900">${a.nome}</div>
+                                                        <div class="text-xs text-gray-500">${a.lucrativo ? 'Fins Lucrativos' : 'Sem Fins Lucrativos'}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${a.lider}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${a.ramo}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="text-sm text-gray-900">${a.localOperacao}</div>
+                                                <div class="text-xs text-gray-500">Fundação: ${a.localFundacao}</div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                ${a.preCadastrado 
+                                                    ? `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">Pré-Cadastrado</span>`
+                                                    : `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Sistema</span>`
+                                                }
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </main>
+
+                    <!-- Modal Cadastro Associação -->
+                    <div id="modalAssociacao" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+                         <div class="bg-white p-6 border rounded-lg shadow-xl w-full max-w-2xl">
+                            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                                <h3 class="text-lg font-medium text-gray-900">Cadastrar Nova Associação</h3>
+                                <button onclick="document.getElementById('modalAssociacao').classList.add('hidden')" class="text-gray-400 hover:text-gray-500"><i data-lucide="x"></i></button>
+                            </div>
+                            <form onsubmit="handleCreateAssociacao(event)" class="space-y-4">
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div class="col-span-2">
+                                        <label class="block text-sm font-medium text-gray-700">Nome da Associação/Órgão</label>
+                                        <input type="text" id="na-nome" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm" placeholder="Ex: ONG Ação Social">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Ramo de Atuação</label>
+                                        <input type="text" id="na-ramo" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm" placeholder="Ex: Assistência Médica">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Dono / Líder Responsável</label>
+                                        <input type="text" id="na-lider" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Local de Operações (Principal)</label>
+                                        <input type="text" id="na-operacao" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Local de Fundação</label>
+                                        <input type="text" id="na-fundacao" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                    </div>
+                                    <div class="col-span-2 flex items-center mt-2">
+                                        <input type="checkbox" id="na-lucrativo" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                                        <label class="ml-2 block text-sm text-gray-900">Possui fins lucrativos?</label>
+                                    </div>
+                                </div>
+                                <div class="mt-5 flex justify-end gap-3 pt-4 border-t">
+                                    <button type="button" onclick="document.getElementById('modalAssociacao').classList.add('hidden')" class="bg-white border border-gray-300 rounded-md shadow-sm py-2 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>
+                                    <button type="submit" class="bg-blue-600 border border-transparent rounded-md shadow-sm py-2 px-4 text-sm font-medium text-white hover:bg-blue-700">Cadastrar</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        function renderAssociacoesalto() {
+            if(state.currentUser.nivel < 1) return renderDashboard();
+            
+            return `
+                <div class="flex-1 flex flex-col h-full bg-gray-50 overflow-hidden">
+                    ${renderTopbar('Associações / Órgãos')}
+                    <main class="flex-1 overflow-y-auto p-6">
+                        
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-lg font-medium text-gray-900">Diretório de Instituições</h2>
+                        </div>
+
+                        <div class="bg-white shadow rounded-lg overflow-hidden border border-gray-200">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome da Instituição</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Líder / Responsável</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ramo de Atuação</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Localidade</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Origem</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    ${DB.associacoes.map(a => `
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="flex items-center">
+                                                    <div class="flex-shrink-0 h-10 w-10 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-700">
+                                                        <i data-lucide="building" class="w-5 h-5"></i>
+                                                    </div>
+                                                    <div class="ml-4">
+                                                        <div class="text-sm font-medium text-gray-900">${a.nome}</div>
+                                                        <div class="text-xs text-gray-500">${a.lucrativo ? 'Fins Lucrativos' : 'Sem Fins Lucrativos'}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${a.lider}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${a.ramo}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="text-sm text-gray-900">${a.localOperacao}</div>
+                                                <div class="text-xs text-gray-500">Fundação: ${a.localFundacao}</div>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                ${a.preCadastrado 
+                                                    ? `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">Pré-Cadastrado</span>`
+                                                    : `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Sistema</span>`
+                                                }
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </main>
+
+                    <!-- Modal Cadastro Associação -->
+                    <div id="modalAssociacao" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+                         <div class="bg-white p-6 border rounded-lg shadow-xl w-full max-w-2xl">
+                            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                                <h3 class="text-lg font-medium text-gray-900">Cadastrar Nova Associação</h3>
+                                <button onclick="document.getElementById('modalAssociacao').classList.add('hidden')" class="text-gray-400 hover:text-gray-500"><i data-lucide="x"></i></button>
+                            </div>
+                            <form onsubmit="handleCreateAssociacao(event)" class="space-y-4">
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div class="col-span-2">
+                                        <label class="block text-sm font-medium text-gray-700">Nome da Associação/Órgão</label>
+                                        <input type="text" id="na-nome" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm" placeholder="Ex: ONG Ação Social">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Ramo de Atuação</label>
+                                        <input type="text" id="na-ramo" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm" placeholder="Ex: Assistência Médica">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Dono / Líder Responsável</label>
+                                        <input type="text" id="na-lider" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Local de Operações (Principal)</label>
+                                        <input type="text" id="na-operacao" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Local de Fundação</label>
+                                        <input type="text" id="na-fundacao" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                    </div>
+                                    <div class="col-span-2 flex items-center mt-2">
+                                        <input type="checkbox" id="na-lucrativo" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                                        <label class="ml-2 block text-sm text-gray-900">Possui fins lucrativos?</label>
+                                    </div>
+                                </div>
+                                <div class="mt-5 flex justify-end gap-3 pt-4 border-t">
+                                    <button type="button" onclick="document.getElementById('modalAssociacao').classList.add('hidden')" class="bg-white border border-gray-300 rounded-md shadow-sm py-2 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>
+                                    <button type="submit" class="bg-blue-600 border border-transparent rounded-md shadow-sm py-2 px-4 text-sm font-medium text-white hover:bg-blue-700">Cadastrar</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        function renderDestinacao() {
+            if(state.currentUser.nivel < 1) return renderDashboard();
+
+            const produtosDestinados = DB.produtos.filter(p => p.destino);
+
+            return `
+                <div class="flex-1 flex flex-col h-full bg-gray-50 overflow-hidden">
+                    ${renderTopbar('Destinações Ativas (Atribuições)')}
+                    <main class="flex-1 overflow-y-auto p-6">
+                        <div class="mb-6 flex justify-between items-center">
+                            <h2 class="text-lg font-medium text-gray-900">Monitoramento de Bens Destinados</h2>
+                            <div class="bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded-full">
+                                Total: ${produtosDestinados.length} Ativos
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                            ${produtosDestinados.length > 0 ? produtosDestinados.map(p => `
+                                <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
+                                    <div class="p-5">
+                                        <div class="flex justify-between items-start mb-3">
+                                            <h3 class="text-md font-bold text-gray-900 flex-1">${p.nome}</h3>
+                                            <span class="bg-indigo-100 text-indigo-800 text-xs font-semibold px-2 py-0.5 rounded ml-2 whitespace-nowrap">ID: ${p.id}</span>
+                                        </div>
+                                        
+                                        <div class="bg-gray-50 p-3 rounded-md mb-4 border border-gray-100">
+                                            <p class="text-sm font-semibold text-gray-800 mb-1">Propósito da Destinação:</p>
+                                            <p class="text-sm text-gray-600 italic">${p.destino.funcao}</p>
+                                        </div>
+
+                                        <div class="space-y-2 text-sm">
+                                            <div class="flex items-center text-gray-600">
+                                                <i data-lucide="map-pin" class="w-4 h-4 mr-2 text-gray-400"></i>
+                                                <span class="font-medium mr-1">Local:</span> ${p.destino.local}
+                                            </div>
+                                            <div class="flex items-center text-gray-600">
+                                                <i data-lucide="user-check" class="w-4 h-4 mr-2 text-gray-400"></i>
+                                                <span class="font-medium mr-1">Resp:</span> ${DB.users.find(u => u.id === p.destino.usuarioId)?.nome || 'Usuário Indisponível'}
+                                            </div>
+                                            <div class="flex items-center text-gray-600">
+                                                <i data-lucide="building" class="w-4 h-4 mr-2 text-gray-400"></i>
+                                                <span class="font-medium mr-1">Associação:</span> ${p.destino.associacao}
+                                            </div>
+                                            <div class="flex items-center text-gray-600">
+                                                <i data-lucide="calendar-clock" class="w-4 h-4 mr-2 text-gray-400"></i>
+                                                <span class="font-medium mr-1">Auditoria:</span> ${p.destino.periodoChecagem}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    </div>
+                                </div>
+                            `).join('') : `
+                                <div class="col-span-full text-center py-12 bg-white rounded-lg border border-dashed border-gray-300">
+                                    <i data-lucide="package-open" class="mx-auto h-12 w-12 text-gray-300 mb-3"></i>
+                                    <h3 class="text-sm font-medium text-gray-900">Nenhuma destinação ativa</h3>
+                                    <p class="mt-1 text-sm text-gray-500">Utilize a aba "Produtos Apreendidos" para atribuir uma destinação.</p>
+                                </div>
+                            `}
+                        </div>
+                    </main>
+                </div>
+            `;
+        }
+
+        function renderAuditoria() {
+            if(state.currentUser.nivel < 3) return renderDashboard();
+
+            return `
+                <div class="flex-1 flex flex-col h-full bg-gray-50 overflow-hidden">
+                    ${renderTopbar('Auditoria de Acesso e Operações')}
+                    <main class="flex-1 overflow-y-auto p-6">
+                        <div class="bg-white shadow rounded-lg overflow-hidden border border-gray-200">
+                            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                                <h3 class="text-lg leading-6 font-medium text-gray-900">Registro Geral de Logs</h3>
+                                <div class="flex gap-2">
+                                    <input type="text" placeholder="Filtrar logs..." class="border border-gray-300 rounded-md shadow-sm py-1 px-3 text-sm">
+                                    <button class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded text-sm"><i data-lucide="download" class="w-4 h-4 inline"></i> Exportar</button>
+                                </div>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data/Hora</th>
+                                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuário</th>
+                                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ação / Detalhes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200">
+                                        ${DB.logs.map(log => `
+                                            <tr class="hover:bg-gray-50">
+                                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${log.dataHora}</td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${log.usuarioNome}</td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">${log.tipo}</span>
+                                                </td>
+                                                <td class="px-6 py-4 text-sm text-gray-500">${log.acao}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            `;
+        }
+
+        // --- 4. CONTROLADORES LÓGICOS (EVENTOS E FORMULÁRIOS) ---
+
+        function handleLogin(e) {
+            e.preventDefault();
+            const doc = document.getElementById('loginDoc').value;
+            const senha = document.getElementById('loginSenha').value;
+            const btn = document.getElementById('btn-login');
+            
+            btn.innerHTML = '<div class="loader mx-auto"></div>';
+            btn.disabled = true;
+
+            setTimeout(() => { // Simula rede
+                const user = DB.users.find(u => u.rg === doc && u.senha === senha);
+                
+                if (user) {
+                    if (user.bloqueado) {
+                        alert("ERRO: Usuário bloqueado no sistema. Contate a administração.");
+                        btn.innerHTML = 'Acessar Sistema';
+                        btn.disabled = false;
+                        return;
+                    }
+                    state.currentUser = user;
+                    logActivity(`Login no sistema`, 'Acesso');
+                    navigate('dashboard');
+                    showToast('Login realizado com sucesso (2FA validado)');
+                } else {
+                    alert("Credenciais inválidas.");
+                    btn.innerHTML = 'Acessar Sistema';
+                    btn.disabled = false;
+                }
+            }, 800);
+        }
+
+        function handleLogout() {
+            logActivity(`Logoff do sistema`, 'Acesso');
+            state.currentUser = null;
+            navigate('login');
+        }
+         function openViewDestinoModal(id) {
+            const p = DB.produtos.find(x => x.id === id);
+            if(!p || !p.destino) return;
+            
+            const resp = DB.users.find(u => u.id === p.destino.usuarioId);
+            
+            const content = `
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="col-span-2 border-b pb-2">
+                        <p class="text-xs text-gray-500 uppercase font-bold">Produto</p>
+                        <p class="text-lg text-indigo-800 font-semibold">${p.nome}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 uppercase font-bold">Função</p>
+                        <p class="text-sm font-medium">${p.destino.funcao}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 uppercase font-bold">Local Enviado</p>
+                        <p class="text-sm font-medium">${p.destino.local}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 uppercase font-bold">Responsável</p>
+                        <p class="text-sm font-medium">${resp ? resp.nome : 'N/A'}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 uppercase font-bold">Associação</p>
+                        <p class="text-sm font-medium">${p.destino.associacao}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 uppercase font-bold">Auditoria</p>
+                        <p class="text-sm font-medium">${p.destino.periodoChecagem}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 uppercase font-bold">Atribuído em</p>
+                        <p class="text-sm font-medium">${p.destino.dataAtribuicao}</p>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('viewDestinoContent').innerHTML = content;
+            document.getElementById('modalViewDestino').classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function toggleBlockUser(id) {
+            const user = DB.users.find(u => u.id === id);
+            if(user) {
+                user.bloqueado = !user.bloqueado;
+                logActivity(`${user.bloqueado ? 'Bloqueou' : 'Desbloqueou'} o usuário ID ${id} (${user.nome})`, 'Bloqueio');
+                showToast(`Usuário ${user.bloqueado ? 'bloqueado' : 'desbloqueado'} com sucesso.`);
+                render(); // Re-renderiza para atualizar tabela
+            }
+        }
+
+        function handleCreateUser(e) {
+            e.preventDefault();
+            const novoId = DB.users.length + 1;
+            const nome = document.getElementById('nu-nome').value;
+            const nivel = parseInt(document.getElementById('nu-nivel').value);
+            
+            DB.users.push({
+                id: novoId,
+                nome: nome,
+                rg: document.getElementById('nu-rg').value,
+                senha: '123',
+                nivel: nivel,
+                bloqueado: false,
+                foto: document.getElementById('nu-foto').value,
+                associacao: document.getElementById('nu-assoc').value,
+                local: document.getElementById('nu-local').value,
+                criacao: new Date().toISOString().split('T')[0]
+            });
+            
+            logActivity(`Cadastrou novo usuário: ${nome} (Nível ${nivel})`, 'Cadastro');
+            showToast('Usuário cadastrado com sucesso.');
+            document.getElementById('modalUser').classList.add('hidden');
+            render();
+        }
+
+        function handleCreateProduto(e) {
+            e.preventDefault();
+            const isLote = document.getElementById('np-lote').checked;
+            const nome = document.getElementById('np-nome').value;
+            
+            DB.produtos.push({
+                id: Math.floor(Math.random() * 1000) + 200,
+                nome: nome,
+                classificacao: document.getElementById('np-class').value,
+                localizacao: document.getElementById('np-local').value,
+                dataApreensao: document.getElementById('np-data').value,
+                motivo: document.getElementById('np-motivo').value,
+                emLote: isLote,
+                quantidade: isLote ? document.getElementById('np-qtd').value : 1,
+                destino: null
+            });
+            
+            logActivity(`Registrou apreensão de produto: ${nome}`, 'Cadastro Produto');
+            showToast('Produto registrado com sucesso.');
+            document.getElementById('modalProduto').classList.add('hidden');
+            render();
+        }
+
+        function openDestinacaoModal(prodId) {
+            const p = DB.produtos.find(x => x.id === prodId);
+            if(!p) return;
+            document.getElementById('nd-prodId').value = p.id;
+            document.getElementById('nd-prodInfo').innerHTML = `<strong>Produto selecionado:</strong> ${p.nome} (ID: ${p.id})`;
+            document.getElementById('modalDestino').classList.remove('hidden');
+        }
+
+        function handleAtribuirDestino(e) {
+            e.preventDefault();
+            const prodId = parseInt(document.getElementById('nd-prodId').value);
+            const p = DB.produtos.find(x => x.id === prodId);
+            const userId = parseInt(document.getElementById('nd-user').value);
+            const user = DB.users.find(u => u.id === userId);
+            
+            if(p && user) {
+                p.destino = {
+                    local: document.getElementById('nd-local').value,
+                    funcao: document.getElementById('nd-funcao').value,
+                    usuarioId: user.id,
+                    associacao: user.associacao,
+                    periodoChecagem: document.getElementById('nd-periodo').value,
+                    dataAtribuicao: new Date().toISOString().split('T')[0]
+                };
+                
+                logActivity(`Atribuiu destino ao produto ID ${p.id} para o usuário ID ${user.id} (${user.nome})`, 'Destinação');
+                showToast('Destinação atribuída com sucesso.');
+                document.getElementById('modalDestino').classList.add('hidden');
+                render();
+            }
+        }
+
+        function handleCreateAssociacao(e) {
+            e.preventDefault();
+            const nome = document.getElementById('na-nome').value;
+            
+            DB.associacoes.push({
+                id: DB.associacoes.length + 1,
+                nome: nome,
+                ramo: document.getElementById('na-ramo').value,
+                lucrativo: document.getElementById('na-lucrativo').checked,
+                localFundacao: document.getElementById('na-fundacao').value,
+                lider: document.getElementById('na-lider').value,
+                localOperacao: document.getElementById('na-operacao').value,
+                preCadastrado: false
+            });
+            
+            logActivity(`Cadastrou nova associação/órgão: ${nome}`, 'Cadastro');
+            showToast('Associação cadastrada com sucesso.');
+            document.getElementById('modalAssociacao').classList.add('hidden');
+            render();
+        }
+
+        // --- 5. LOOP DE RENDERIZAÇÃO PRINCIPAL ---
+        function render() {
+            const container = document.getElementById('app-container');
+            
+            if (state.currentView === 'login' || !state.currentUser) {
+                container.innerHTML = renderLogin();
+            } else {
+                let mainContent = '';
+                switch(state.currentView) {
+                    case 'dashboard': mainContent = renderDashboard(); break;
+                    case 'usuarios': mainContent = renderUsuarios(); break;
+                    case 'produtos': mainContent = renderProdutos(); break;
+                    case 'auditoria': mainContent = renderAuditoria(); break;
+                    case 'associacoes': if (state.currentUser.nivel < 2) {
+            mainContent = renderAssociacoesalto();
+        } else {
+            mainContent = renderAssociacoes();
+        }
+        break;
+                    case 'destinacao': mainContent = renderDestinacao(); break;
+                    default: mainContent = renderDashboard();
+                }
+                
+                container.innerHTML = `
+                    ${renderSidebar()}
+                    ${mainContent}
+                `;
+            }
+            
+            // Re-inicializa os ícones após re-renderizar o DOM
+            lucide.createIcons();
+        }
+
+        // Inicialização
+        document.addEventListener('DOMContentLoaded', () => {
+            render();
+        });
+
+    </script>
+</body>
+</html>
