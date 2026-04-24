@@ -6,6 +6,11 @@
     <title>SGAP - Sistema de Gestão e Aplicação de Produtos</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Bibliotecas para Exportação PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
@@ -44,7 +49,7 @@
             ],
             produtos: [
                 { id: 101, nome: "Lote de Notebooks Dell", classificacao: "Eletrônico", localizacao: "Galpão Central - SP", dataApreensao: "2024-03-15", motivo: "Descaminho", emLote: true, quantidade: 50, destino: null },
-                { id: 102, nome: "Caminhão de Bebidas Destiladas", classificacao: "Bebida", localizacao: "Pátio Receita - PR", dataApreensao: "2024-04-10", motivo: "Falsificação", emLote: true, quantidade: 5000, destino: { local: "Destruição/Reciclagem PR", funcao: "Descarte ecológico", usuarioId: 2, associacao: "Polícia Civil", periodoChecagem: "Único" } }
+                { id: 102, nome: "Caminhão de Bebidas Destiladas", classificacao: "Bebida", localizacao: "Pátio Receita - PR", dataApreensao: "2024-04-10", motivo: "Falsificação", emLote: true, quantidade: 5000, destino: { local: "Destruição/Reciclagem PR", funcao: "Descarte ecológico", usuarioId: 2, associacao: "Polícia Civil", periodoChecagem: "Único", recebido: false } }
             ],
             logs: [
                 { id: 1, dataHora: "2024-04-20 08:00", usuarioNome: "Inspetor Chefe", acao: "Login no sistema via IP 192.168.0.1", tipo: "Acesso" },
@@ -107,6 +112,50 @@
             if(level === 3) return `<span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded border border-red-200">Alto</span>`;
             if(level === 2) return `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded border border-yellow-200">Médio</span>`;
             return `<span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded border border-green-200">Baixo</span>`;
+        }
+
+        // --- EXPORTAÇÃO PDF ---
+        function exportLogsPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.setFontSize(14);
+            doc.text("SGAP - Registro Geral de Logs e Auditoria", 14, 15);
+            doc.autoTable({
+                startY: 20,
+                head: [['Data/Hora', 'Usuário', 'Tipo', 'Ação']],
+                body: DB.logs.map(l => [l.dataHora, l.usuarioNome, l.tipo, l.acao])
+            });
+            doc.save("SGAP_Logs.pdf");
+            showToast("Relatório PDF exportado com sucesso.");
+        }
+
+        function exportProdutosPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.setFontSize(14);
+            doc.text("SGAP - Relatório de Produtos Apreendidos", 14, 15);
+            doc.autoTable({
+                startY: 20,
+                head: [['ID', 'Item', 'Classificação', 'Data Apreensão', 'Status']],
+                body: DB.produtos.map(p => [p.id, p.nome, p.classificacao, p.dataApreensao, p.destino ? 'Destinado' : 'Em Depósito'])
+            });
+            doc.save("SGAP_Produtos.pdf");
+            showToast("Relatório PDF exportado com sucesso.");
+        }
+
+        function exportDestinacoesPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.setFontSize(14);
+            doc.text("SGAP - Relatório de Destinações Ativas", 14, 15);
+            const ativos = DB.produtos.filter(p => p.destino);
+            doc.autoTable({
+                startY: 20,
+                head: [['ID Produto', 'Função', 'Local Destino', 'Associação', 'Status']],
+                body: ativos.map(p => [p.id, p.destino.funcao, p.destino.local, p.destino.associacao, p.destino.recebido ? 'Recebido' : 'Pendente'])
+            });
+            doc.save("SGAP_Destinacoes.pdf");
+            showToast("Relatório PDF exportado com sucesso.");
         }
 
         // --- 3. RENDERIZAÇÃO DE TELAS ---
@@ -512,35 +561,40 @@
                         
                         <div class="flex justify-between items-center mb-6">
                             <h2 class="text-lg font-medium text-gray-900">Catálogo de Bens</h2>
-                            <button onclick="openModalProduto()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
-                                <i data-lucide="plus-circle" class="w-4 h-4"></i> Registrar Apreensão
-                            </button>
+                            <div class="flex gap-2">
+                                <button onclick="exportProdutosPDF()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
+                                    <i data-lucide="file-down" class="w-4 h-4"></i> Exportar PDF
+                                </button>
+                                <button onclick="openModalProduto()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
+                                    <i data-lucide="plus-circle" class="w-4 h-4"></i> Registrar Apreensão
+                                </button>
+                            </div>
                         </div>
 
                         <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                             ${DB.produtos.map(p => `
-                                <div class="bg-white overflow-hidden shadow rounded-lg border ${p.destino ? 'border-green-200' : 'border-gray-200'} relative flex flex-col">
+                                <div class="bg-white overflow-hidden shadow rounded-lg border ${p.destino ? (p.destino.recebido ? 'border-indigo-300' : 'border-green-200') : 'border-gray-200'} relative flex flex-col h-full">
                                     ${!p.destino ? `
-                                    <div class="absolute top-4 right-4 flex items-center gap-2">
+                                    <div class="absolute top-4 right-4 flex items-center gap-2 z-10">
                                         <button onclick="openModalProduto(${p.id})" class="text-blue-500 hover:text-blue-700 p-1.5 bg-white rounded-md shadow-sm border border-gray-200" title="Editar"><i data-lucide="edit" class="w-3.5 h-3.5"></i></button>
                                         <button onclick="deleteProduto(${p.id})" class="text-red-500 hover:text-red-700 p-1.5 bg-white rounded-md shadow-sm border border-gray-200" title="Excluir"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                                     </div>
                                     ` : ''}
-                                    <div class="px-4 py-5 sm:p-6 flex-1">
-                                        <div class="flex items-center justify-between mb-2">
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${p.destino ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
-                                                ${p.destino ? 'Destinado' : 'Em Depósito'}
+                                    <div class="p-5 flex-1">
+                                        <div class="flex items-center justify-between mb-3">
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${p.destino ? (p.destino.recebido ? 'bg-indigo-100 text-indigo-800' : 'bg-green-100 text-green-800') : 'bg-gray-100 text-gray-800'}">
+                                                ${p.destino ? (p.destino.recebido ? '<i data-lucide="check" class="w-3 h-3 mr-1"></i> Recebido' : 'Destinado') : 'Em Depósito'}
                                             </span>
                                             <span class="text-xs text-gray-500 ${!p.destino ? 'mr-16' : ''}">ID: #${p.id}</span>
                                         </div>
-                                        <h3 class="text-lg leading-6 font-medium text-gray-900 truncate ${!p.destino ? 'pr-16' : ''}">${p.nome}</h3>
-                                        <div class="mt-4 space-y-2">
-                                            <p class="text-sm text-gray-600 flex items-start gap-2"><i data-lucide="map-pin" class="w-4 h-4 text-gray-400 mt-0.5"></i> Localização: ${p.localizacao}</p>
-                                            <p class="text-sm text-gray-600 flex items-start gap-2"><i data-lucide="calendar" class="w-4 h-4 text-gray-400 mt-0.5"></i> Apreendido em: ${p.dataApreensao}</p>
-                                            <p class="text-sm text-gray-600 flex items-start gap-2"><i data-lucide="info" class="w-4 h-4 text-gray-400 mt-0.5"></i> Motivo: ${p.motivo}</p>
+                                        <h3 class="text-lg leading-6 font-medium text-gray-900 mb-2 truncate ${!p.destino ? 'pr-16' : ''}">${p.nome}</h3>
+                                        <div class="space-y-1 mt-3">
+                                            <p class="text-sm text-gray-600 flex items-start gap-2"><i data-lucide="map-pin" class="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0"></i> <span>${p.localizacao}</span></p>
+                                            <p class="text-sm text-gray-600 flex items-start gap-2"><i data-lucide="calendar" class="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0"></i> <span>Apreendido em: ${p.dataApreensao}</span></p>
+                                            <p class="text-sm text-gray-600 flex items-start gap-2"><i data-lucide="info" class="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0"></i> <span>Motivo: ${p.motivo}</span></p>
                                         </div>
                                     </div>
-                                    <div class="bg-gray-50 px-4 py-4 sm:px-6 border-t border-gray-200 mt-auto">
+                                    <div class="bg-gray-50 p-4 border-t border-gray-200 mt-auto">
                                          ${!p.destino ? `
                                             <button onclick="openModalDestino(${p.id})" class="w-full flex justify-center items-center gap-2 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
                                                 <i data-lucide="send" class="w-4 h-4"></i> Atribuir Destinação
@@ -631,7 +685,7 @@
                     <div id="modalDestino" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
                          <div class="bg-white p-6 border rounded-lg shadow-xl w-full max-w-2xl">
                             <div class="flex justify-between items-center mb-4 border-b pb-2">
-                                <h3 class="text-lg font-medium text-gray-900">Atribuir Destinação de Bem</h3>
+                                <h3 class="text-lg font-medium text-gray-900">Atribuir/Editar Destinação de Bem</h3>
                                 <button onclick="document.getElementById('modalDestino').classList.add('hidden')" class="text-gray-400 hover:text-gray-500"><i data-lucide="x"></i></button>
                             </div>
                             <form id="formDestino" onsubmit="handleSaveDestino(event)" class="space-y-4">
@@ -674,8 +728,8 @@
         }
 
         function renderAssociacoes() {
-            if(state.currentUser.nivel < 2) return renderDashboard();
-            
+            const canEdit = state.currentUser.nivel >= 2;
+
             return `
                 <div class="flex-1 flex flex-col h-full bg-gray-50 overflow-hidden">
                     ${renderTopbar('Associações / Órgãos')}
@@ -683,9 +737,11 @@
                         
                         <div class="flex justify-between items-center mb-6">
                             <h2 class="text-lg font-medium text-gray-900">Diretório de Instituições</h2>
+                            ${canEdit ? `
                             <button onclick="openModalAssociacao()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
                                 <i data-lucide="building-2" class="w-4 h-4"></i> Cadastrar Associação
                             </button>
+                            ` : ''}
                         </div>
 
                         <div class="bg-white shadow rounded-lg overflow-hidden border border-gray-200">
@@ -697,7 +753,7 @@
                                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ramo de Atuação</th>
                                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Localidade</th>
                                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Origem</th>
-                                        <th scope="col" class="relative px-6 py-3"><span class="sr-only">Ações</span></th>
+                                        ${canEdit ? '<th scope="col" class="relative px-6 py-3"><span class="sr-only">Ações</span></th>' : ''}
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200">
@@ -726,12 +782,14 @@
                                                     : `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Sistema</span>`
                                                 }
                                             </td>
+                                            ${canEdit ? `
                                             <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                                 ${!a.preCadastrado ? `
                                                     <button onclick="openModalAssociacao(${a.id})" class="text-blue-600 hover:text-blue-900 mr-3" title="Editar"><i data-lucide="edit" class="w-4 h-4 inline"></i></button>
                                                     <button onclick="deleteAssociacao(${a.id})" class="text-red-600 hover:text-red-900" title="Excluir"><i data-lucide="trash-2" class="w-4 h-4 inline"></i></button>
                                                 ` : '<span class="text-gray-400 text-xs italic">Protegido</span>'}
                                             </td>
+                                            ` : ''}
                                         </tr>
                                     `).join('')}
                                 </tbody>
@@ -785,6 +843,7 @@
         }
         function renderDestinacao() {
             if(state.currentUser.nivel < 1) return renderDashboard();
+            const canEdit = state.currentUser.nivel >= 2;
 
             const produtosDestinados = DB.produtos.filter(p => p.destino);
 
@@ -794,18 +853,26 @@
                     <main class="flex-1 overflow-y-auto p-6">
                         <div class="mb-6 flex justify-between items-center">
                             <h2 class="text-lg font-medium text-gray-900">Monitoramento de Bens Destinados</h2>
-                            <div class="bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded-full">
-                                Total: ${produtosDestinados.length} Ativos
+                            <div class="flex items-center gap-4">
+                                <div class="bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded-full">
+                                    Total: ${produtosDestinados.length} Ativos
+                                </div>
+                                <button onclick="exportDestinacoesPDF()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
+                                    <i data-lucide="file-down" class="w-4 h-4"></i> Exportar PDF
+                                </button>
                             </div>
                         </div>
 
                         <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
                             ${produtosDestinados.length > 0 ? produtosDestinados.map(p => `
-                                <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
-                                    <div class="p-5">
+                                <div class="bg-white rounded-lg shadow-sm border ${p.destino.recebido ? 'border-indigo-300' : 'border-gray-200'} overflow-hidden hover:shadow-md transition-shadow flex flex-col">
+                                    <div class="p-5 flex-1">
                                         <div class="flex justify-between items-start mb-3">
-                                            <h3 class="text-md font-bold text-gray-900 flex-1">${p.nome}</h3>
-                                            <span class="bg-indigo-100 text-indigo-800 text-xs font-semibold px-2 py-0.5 rounded ml-2 whitespace-nowrap">ID: ${p.id}</span>
+                                            <h3 class="text-md font-bold text-gray-900 flex-1 pr-2">${p.nome}</h3>
+                                            ${p.destino.recebido 
+                                                ? `<span class="bg-indigo-100 text-indigo-800 text-xs font-bold px-2 py-1 rounded whitespace-nowrap flex items-center gap-1"><i data-lucide="check" class="w-3 h-3"></i> Recebido</span>` 
+                                                : `<span class="bg-gray-100 text-gray-600 text-xs font-semibold px-2 py-1 rounded whitespace-nowrap">Pendente</span>`
+                                            }
                                         </div>
                                         
                                         <div class="bg-gray-50 p-3 rounded-md mb-4 border border-gray-100">
@@ -832,14 +899,31 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="bg-gray-50 px-5 py-3 border-t border-gray-200 flex justify-end gap-3">
-                                        <button onclick="openModalDestino(${p.id}, true)" class="text-blue-600 hover:text-blue-900 text-sm font-medium flex items-center gap-1 mr-auto">
-                                            <i data-lucide="edit" class="w-4 h-4"></i> Editar Destino
-                                        </button>
-                                        <button onclick="deleteDestino(${p.id})" class="text-red-600 hover:text-red-900 text-sm font-medium flex items-center gap-1">
-                                            <i data-lucide="trash-2" class="w-4 h-4"></i> Revogar
+                                    ${canEdit ? `
+                                    <div class="bg-gray-50 px-5 py-3 border-t border-gray-200 flex justify-end gap-2 mt-auto">
+                                        ${!p.destino.recebido ? `
+                                            <button onclick="marcarRecebido(${p.id})" class="bg-green-100 text-green-700 hover:bg-green-200 px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-1 mr-auto transition-colors">
+                                                <i data-lucide="thumbs-up" class="w-4 h-4"></i> Recebido 👍
+                                            </button>
+                                            <button onclick="openModalDestino(${p.id}, true)" class="text-blue-600 hover:text-blue-900 text-sm font-medium flex items-center gap-1 p-2">
+                                                <i data-lucide="edit" class="w-4 h-4"></i> Editar
+                                            </button>
+                                            <button onclick="deleteDestino(${p.id})" class="text-red-600 hover:text-red-900 text-sm font-medium flex items-center gap-1 p-2">
+                                                <i data-lucide="trash-2" class="w-4 h-4"></i> Revogar
+                                            </button>
+                                        ` : `
+                                            <button onclick="openViewDestinoModal(${p.id})" class="w-full text-center text-gray-600 hover:text-gray-900 text-sm font-medium flex items-center justify-center gap-1 p-2">
+                                                <i data-lucide="eye" class="w-4 h-4"></i> Ver Detalhes do Destino
+                                            </button>
+                                        `}
+                                    </div>
+                                    ` : `
+                                    <div class="bg-gray-50 px-5 py-3 border-t border-gray-200 mt-auto">
+                                        <button onclick="openViewDestinoModal(${p.id})" class="w-full text-center text-gray-600 hover:text-gray-900 text-sm font-medium flex items-center justify-center gap-1 p-2">
+                                            <i data-lucide="eye" class="w-4 h-4"></i> Ver Detalhes do Destino
                                         </button>
                                     </div>
+                                    `}
                                 </div>
                             `).join('') : `
                                 <div class="col-span-full text-center py-12 bg-white rounded-lg border border-dashed border-gray-300">
@@ -850,6 +934,65 @@
                             `}
                         </div>
                     </main>
+                    
+                    ${canEdit ? `
+                    <!-- Modal Destinação (Injetado aqui para permitir a edição também nesta aba) -->
+                    <div id="modalDestino" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+                         <div class="bg-white p-6 border rounded-lg shadow-xl w-full max-w-2xl">
+                            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                                <h3 class="text-lg font-medium text-gray-900">Atribuir/Editar Destinação de Bem</h3>
+                                <button type="button" onclick="document.getElementById('modalDestino').classList.add('hidden')" class="text-gray-400 hover:text-gray-500"><i data-lucide="x"></i></button>
+                            </div>
+                            <form id="formDestino" onsubmit="handleSaveDestino(event)" class="space-y-4">
+                                <input type="hidden" id="nd-prodId">
+                                <div class="bg-gray-50 p-3 rounded text-sm mb-4 border" id="nd-prodInfo"></div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Função da Destinação (Propósito)</label>
+                                    <input type="text" id="nd-funcao" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm" placeholder="Ex: Transformação em terminal de consulta, Doação, Destruição...">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Local de Destino (Para onde será enviado)</label>
+                                    <input type="text" id="nd-local" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Atribuir ao Usuário/Responsável</label>
+                                        <select id="nd-user" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                            <option value="">Selecione...</option>
+                                            ${DB.users.filter(u => !u.bloqueado).map(u => `<option value="${u.id}">${u.nome} (${u.associacao})</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Período de Checagem/Auditoria</label>
+                                        <select id="nd-periodo" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                            <option>Semanal</option><option>Mensal</option><option>Semestral</option><option>Anual</option><option>Único (Consumo/Descarte)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="mt-5 flex justify-end gap-3 pt-4 border-t">
+                                    <button type="button" onclick="document.getElementById('modalDestino').classList.add('hidden')" class="bg-white border border-gray-300 rounded-md shadow-sm py-2 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>
+                                    <button type="submit" class="bg-indigo-600 border border-transparent rounded-md shadow-sm py-2 px-4 text-sm font-medium text-white hover:bg-indigo-700">Confirmar Destinação</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    ` : ''}
+
+                    <!-- Modal Detalhes do Destino -->
+                    <div id="modalViewDestino" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-[60] flex items-center justify-center">
+                        <div class="bg-white p-0 border rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
+                            <div class="bg-indigo-600 p-4 flex justify-between items-center text-white">
+                                <h3 class="font-bold flex items-center gap-2"><i data-lucide="info"></i> Detalhes da Destinação</h3>
+                                <button onclick="document.getElementById('modalViewDestino').classList.add('hidden')"><i data-lucide="x" class="w-5 h-5"></i></button>
+                            </div>
+                            <div class="p-6 space-y-4" id="viewDestinoContent"></div>
+                            <div class="bg-gray-50 p-4 flex justify-end">
+                                <button onclick="document.getElementById('modalViewDestino').classList.add('hidden')" class="px-4 py-2 bg-gray-200 rounded-md text-sm font-medium hover:bg-gray-300">Fechar</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             `;
         }
@@ -866,7 +1009,9 @@
                                 <h3 class="text-lg leading-6 font-medium text-gray-900">Registro Geral de Logs</h3>
                                 <div class="flex gap-2">
                                     <input type="text" placeholder="Filtrar logs..." class="border border-gray-300 rounded-md shadow-sm py-1 px-3 text-sm">
-                                    <button class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded text-sm"><i data-lucide="download" class="w-4 h-4 inline"></i> Exportar</button>
+                                    <button onclick="exportLogsPDF()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded text-sm flex items-center gap-1">
+                                        <i data-lucide="file-down" class="w-4 h-4"></i> Exportar PDF
+                                    </button>
                                 </div>
                             </div>
                             <div class="overflow-x-auto">
@@ -1163,6 +1308,12 @@
 
         function handleSaveDestino(e) {
             e.preventDefault();
+            
+            // Requisito: Mensagem "Tem Certeza?!"
+            if(!confirm("Tem certeza que deseja confirmar as informações desta destinação?")) {
+                return;
+            }
+
             const prodId = parseInt(document.getElementById('nd-prodId').value);
             const p = DB.produtos.find(x => x.id === prodId);
             const userId = parseInt(document.getElementById('nd-user').value);
@@ -1176,13 +1327,26 @@
                     usuarioId: user.id,
                     associacao: user.associacao,
                     periodoChecagem: document.getElementById('nd-periodo').value,
-                    dataAtribuicao: isEdit ? p.destino.dataAtribuicao : new Date().toLocaleDateString('pt-BR')
+                    dataAtribuicao: isEdit ? p.destino.dataAtribuicao : new Date().toLocaleDateString('pt-BR'),
+                    recebido: false // Inicia sempre como falso
                 };
                 
                 logActivity(`${isEdit ? 'Editou' : 'Atribuiu'} destino ao produto ID ${p.id}`, 'Destinação');
                 showToast(`Destinação ${isEdit ? 'atualizada' : 'atribuída'} com sucesso.`);
                 document.getElementById('modalDestino').classList.add('hidden');
                 render();
+            }
+        }
+
+        function marcarRecebido(prodId) {
+            if(confirm("Deseja marcar este produto como RECEBIDO? \nEssa ação removerá a possibilidade de editar ou revogar a destinação futuramente.")) {
+                const p = DB.produtos.find(x => x.id === prodId);
+                if(p && p.destino) {
+                    p.destino.recebido = true;
+                    logActivity(`Marcou o produto ID ${p.id} como Recebido`, 'Atualização Status');
+                    showToast('Produto marcado como Recebido com sucesso!');
+                    render();
+                }
             }
         }
 
@@ -1263,12 +1427,7 @@
                     case 'usuarios': mainContent = renderUsuarios(); break;
                     case 'produtos': mainContent = renderProdutos(); break;
                     case 'auditoria': mainContent = renderAuditoria(); break;
-                    case 'associacoes': if (state.currentUser.nivel < 2) {
-            mainContent = renderAssociacoesalto();
-        } else {
-            mainContent = renderAssociacoes();
-        }
-        break;
+                    case 'associacoes': mainContent = renderAssociacoes(); break;
                     case 'destinacao': mainContent = renderDestinacao(); break;
                     default: mainContent = renderDashboard();
                 }
