@@ -55,7 +55,8 @@
         const state = {
             currentUser: null,
             currentView: 'login', // login, dashboard, usuarios, associacoes, produtos, destinacao, auditoria
-            toast: null
+            toast: null,
+            editingId: null
         };
 
         // --- 2. FUNÇÕES DE UTILIDADE ---
@@ -383,7 +384,7 @@
                         
                         <div class="flex justify-between items-center mb-6">
                             <h2 class="text-lg font-medium text-gray-900">Gerenciamento de Contas</h2>
-                            <button onclick="document.getElementById('modalUser').classList.remove('hidden')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
+                            <button onclick="openModalUser()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
                                 <i data-lucide="user-plus" class="w-4 h-4"></i> Novo Usuário
                             </button>
                         </div>
@@ -428,9 +429,13 @@
                                             </td>
                                             <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                                 ${u.id !== state.currentUser.id ? `
-                                                    <button onclick="toggleBlockUser(${u.id})" class="text-${u.bloqueado ? 'green' : 'red'}-600 hover:text-${u.bloqueado ? 'green' : 'red'}-900 flex items-center gap-1 ml-auto">
-                                                        <i data-lucide="${u.bloqueado ? 'unlock' : 'lock'}" class="w-4 h-4"></i> ${u.bloqueado ? 'Desbloquear' : 'Bloquear'}
-                                                    </button>
+                                                    <div class="flex items-center justify-end gap-3">
+                                                        <button onclick="openModalUser(${u.id})" class="text-blue-600 hover:text-blue-900" title="Editar"><i data-lucide="edit" class="w-4 h-4"></i></button>
+                                                        <button onclick="deleteUser(${u.id})" class="text-red-600 hover:text-red-900" title="Excluir"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                                        <button onclick="toggleBlockUser(${u.id})" class="text-${u.bloqueado ? 'green' : 'gray'}-600 hover:text-${u.bloqueado ? 'green' : 'gray'}-900" title="${u.bloqueado ? 'Desbloquear' : 'Bloquear'}">
+                                                            <i data-lucide="${u.bloqueado ? 'unlock' : 'lock'}" class="w-4 h-4"></i>
+                                                        </button>
+                                                    </div>
                                                 ` : '<span class="text-gray-400 text-xs italic">Você</span>'}
                                             </td>
                                         </tr>
@@ -444,10 +449,10 @@
                     <div id="modalUser" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
                         <div class="bg-white p-6 border rounded-lg shadow-xl w-full max-w-2xl">
                             <div class="flex justify-between items-center mb-4 border-b pb-2">
-                                <h3 class="text-lg font-medium text-gray-900">Cadastrar Novo Usuário</h3>
+                                <h3 id="modalUserTitle" class="text-lg font-medium text-gray-900">Cadastrar Novo Usuário</h3>
                                 <button onclick="document.getElementById('modalUser').classList.add('hidden')" class="text-gray-400 hover:text-gray-500"><i data-lucide="x"></i></button>
                             </div>
-                            <form onsubmit="handleCreateUser(event)" class="space-y-4">
+                            <form id="formUser" onsubmit="handleSaveUser(event)" class="space-y-4">
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700">Nome Completo</label>
@@ -507,33 +512,37 @@
                         
                         <div class="flex justify-between items-center mb-6">
                             <h2 class="text-lg font-medium text-gray-900">Catálogo de Bens</h2>
-                            <button onclick="document.getElementById('modalProduto').classList.remove('hidden')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
+                            <button onclick="openModalProduto()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
                                 <i data-lucide="plus-circle" class="w-4 h-4"></i> Registrar Apreensão
                             </button>
                         </div>
 
                         <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                             ${DB.produtos.map(p => `
-                                <div class="bg-white overflow-hidden shadow rounded-lg border ${p.destino ? 'border-green-200' : 'border-gray-200'}">
-                                    <div class="px-4 py-5 sm:p-6">
+                                <div class="bg-white overflow-hidden shadow rounded-lg border ${p.destino ? 'border-green-200' : 'border-gray-200'} relative flex flex-col">
+                                    ${!p.destino ? `
+                                    <div class="absolute top-4 right-4 flex items-center gap-2">
+                                        <button onclick="openModalProduto(${p.id})" class="text-blue-500 hover:text-blue-700 p-1.5 bg-white rounded-md shadow-sm border border-gray-200" title="Editar"><i data-lucide="edit" class="w-3.5 h-3.5"></i></button>
+                                        <button onclick="deleteProduto(${p.id})" class="text-red-500 hover:text-red-700 p-1.5 bg-white rounded-md shadow-sm border border-gray-200" title="Excluir"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                                    </div>
+                                    ` : ''}
+                                    <div class="px-4 py-5 sm:p-6 flex-1">
                                         <div class="flex items-center justify-between mb-2">
                                             <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${p.destino ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
                                                 ${p.destino ? 'Destinado' : 'Em Depósito'}
                                             </span>
-                                            <span class="text-xs text-gray-500">ID: #${p.id}</span>
+                                            <span class="text-xs text-gray-500 ${!p.destino ? 'mr-16' : ''}">ID: #${p.id}</span>
                                         </div>
-                                        <h3 class="text-lg leading-6 font-medium text-gray-900 truncate">${p.nome}</h3>
-                                        <p class="text-sm text-gray-500 mt-1 flex items-center gap-1"><i data-lucide="tag" class="w-3 h-3"></i> ${p.classificacao} ${p.emLote ? `(Lote: ${p.quantidade} un)` : ''}</p>
-                                        
+                                        <h3 class="text-lg leading-6 font-medium text-gray-900 truncate ${!p.destino ? 'pr-16' : ''}">${p.nome}</h3>
                                         <div class="mt-4 space-y-2">
-                                            <p class="text-sm text-gray-600 flex items-start gap-2"><i data-lucide="map-pin" class="w-4 h-4 text-gray-400 mt-0.5"></i> ${p.localizacao}</p>
+                                            <p class="text-sm text-gray-600 flex items-start gap-2"><i data-lucide="map-pin" class="w-4 h-4 text-gray-400 mt-0.5"></i> Localização: ${p.localizacao}</p>
                                             <p class="text-sm text-gray-600 flex items-start gap-2"><i data-lucide="calendar" class="w-4 h-4 text-gray-400 mt-0.5"></i> Apreendido em: ${p.dataApreensao}</p>
                                             <p class="text-sm text-gray-600 flex items-start gap-2"><i data-lucide="info" class="w-4 h-4 text-gray-400 mt-0.5"></i> Motivo: ${p.motivo}</p>
                                         </div>
                                     </div>
-                                    <div class="bg-gray-50 px-4 py-4 sm:px-6 border-t border-gray-200">
+                                    <div class="bg-gray-50 px-4 py-4 sm:px-6 border-t border-gray-200 mt-auto">
                                          ${!p.destino ? `
-                                            <button onclick="openDestinacaoModal(${p.id})" class="w-full flex justify-center items-center gap-2 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
+                                            <button onclick="openModalDestino(${p.id})" class="w-full flex justify-center items-center gap-2 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
                                                 <i data-lucide="send" class="w-4 h-4"></i> Atribuir Destinação
                                             </button>
                                         ` : `
@@ -567,10 +576,10 @@
                     <div id="modalProduto" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
                          <div class="bg-white p-6 border rounded-lg shadow-xl w-full max-w-2xl">
                             <div class="flex justify-between items-center mb-4 border-b pb-2">
-                                <h3 class="text-lg font-medium text-gray-900">Registrar Produto Apreendido</h3>
+                                <h3 id="modalProdutoTitle" class="text-lg font-medium text-gray-900">Registrar Produto Apreendido</h3>
                                 <button onclick="document.getElementById('modalProduto').classList.add('hidden')" class="text-gray-400 hover:text-gray-500"><i data-lucide="x"></i></button>
                             </div>
-                            <form onsubmit="handleCreateProduto(event)" class="space-y-4">
+                            <form id="formProduto" onsubmit="handleSaveProduto(event)" class="space-y-4">
                                 <div>
                                     <div class="flex items-center justify-between mb-2">
                                         <label class="block text-sm font-medium text-gray-700">Entrada de Dados</label>
@@ -618,14 +627,14 @@
                         </div>
                     </div>
 
-                    <!-- Modal Destinação -->
+                    <!-- Modal Destinação Form -->
                     <div id="modalDestino" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
                          <div class="bg-white p-6 border rounded-lg shadow-xl w-full max-w-2xl">
                             <div class="flex justify-between items-center mb-4 border-b pb-2">
                                 <h3 class="text-lg font-medium text-gray-900">Atribuir Destinação de Bem</h3>
                                 <button onclick="document.getElementById('modalDestino').classList.add('hidden')" class="text-gray-400 hover:text-gray-500"><i data-lucide="x"></i></button>
                             </div>
-                            <form onsubmit="handleAtribuirDestino(event)" class="space-y-4">
+                            <form id="formDestino" onsubmit="handleSaveDestino(event)" class="space-y-4">
                                 <input type="hidden" id="nd-prodId">
                                 <div class="bg-gray-50 p-3 rounded text-sm mb-4 border" id="nd-prodInfo"></div>
                                 
@@ -674,7 +683,7 @@
                         
                         <div class="flex justify-between items-center mb-6">
                             <h2 class="text-lg font-medium text-gray-900">Diretório de Instituições</h2>
-                            <button onclick="document.getElementById('modalAssociacao').classList.remove('hidden')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
+                            <button onclick="openModalAssociacao()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium flex items-center gap-2">
                                 <i data-lucide="building-2" class="w-4 h-4"></i> Cadastrar Associação
                             </button>
                         </div>
@@ -688,6 +697,7 @@
                                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ramo de Atuação</th>
                                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Localidade</th>
                                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Origem</th>
+                                        <th scope="col" class="relative px-6 py-3"><span class="sr-only">Ações</span></th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200">
@@ -716,105 +726,11 @@
                                                     : `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Sistema</span>`
                                                 }
                                             </td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
-                        </div>
-                    </main>
-
-                    <!-- Modal Cadastro Associação -->
-                    <div id="modalAssociacao" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
-                         <div class="bg-white p-6 border rounded-lg shadow-xl w-full max-w-2xl">
-                            <div class="flex justify-between items-center mb-4 border-b pb-2">
-                                <h3 class="text-lg font-medium text-gray-900">Cadastrar Nova Associação</h3>
-                                <button onclick="document.getElementById('modalAssociacao').classList.add('hidden')" class="text-gray-400 hover:text-gray-500"><i data-lucide="x"></i></button>
-                            </div>
-                            <form onsubmit="handleCreateAssociacao(event)" class="space-y-4">
-                                <div class="grid grid-cols-2 gap-4">
-                                    <div class="col-span-2">
-                                        <label class="block text-sm font-medium text-gray-700">Nome da Associação/Órgão</label>
-                                        <input type="text" id="na-nome" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm" placeholder="Ex: ONG Ação Social">
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700">Ramo de Atuação</label>
-                                        <input type="text" id="na-ramo" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm" placeholder="Ex: Assistência Médica">
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700">Dono / Líder Responsável</label>
-                                        <input type="text" id="na-lider" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700">Local de Operações (Principal)</label>
-                                        <input type="text" id="na-operacao" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700">Local de Fundação</label>
-                                        <input type="text" id="na-fundacao" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
-                                    </div>
-                                    <div class="col-span-2 flex items-center mt-2">
-                                        <input type="checkbox" id="na-lucrativo" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
-                                        <label class="ml-2 block text-sm text-gray-900">Possui fins lucrativos?</label>
-                                    </div>
-                                </div>
-                                <div class="mt-5 flex justify-end gap-3 pt-4 border-t">
-                                    <button type="button" onclick="document.getElementById('modalAssociacao').classList.add('hidden')" class="bg-white border border-gray-300 rounded-md shadow-sm py-2 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>
-                                    <button type="submit" class="bg-blue-600 border border-transparent rounded-md shadow-sm py-2 px-4 text-sm font-medium text-white hover:bg-blue-700">Cadastrar</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-        function renderAssociacoesalto() {
-            if(state.currentUser.nivel < 1) return renderDashboard();
-            
-            return `
-                <div class="flex-1 flex flex-col h-full bg-gray-50 overflow-hidden">
-                    ${renderTopbar('Associações / Órgãos')}
-                    <main class="flex-1 overflow-y-auto p-6">
-                        
-                        <div class="flex justify-between items-center mb-6">
-                            <h2 class="text-lg font-medium text-gray-900">Diretório de Instituições</h2>
-                        </div>
-
-                        <div class="bg-white shadow rounded-lg overflow-hidden border border-gray-200">
-                            <table class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome da Instituição</th>
-                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Líder / Responsável</th>
-                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ramo de Atuação</th>
-                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Localidade</th>
-                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Origem</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="bg-white divide-y divide-gray-200">
-                                    ${DB.associacoes.map(a => `
-                                        <tr class="hover:bg-gray-50">
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <div class="flex items-center">
-                                                    <div class="flex-shrink-0 h-10 w-10 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-700">
-                                                        <i data-lucide="building" class="w-5 h-5"></i>
-                                                    </div>
-                                                    <div class="ml-4">
-                                                        <div class="text-sm font-medium text-gray-900">${a.nome}</div>
-                                                        <div class="text-xs text-gray-500">${a.lucrativo ? 'Fins Lucrativos' : 'Sem Fins Lucrativos'}</div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${a.lider}</td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${a.ramo}</td>
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                <div class="text-sm text-gray-900">${a.localOperacao}</div>
-                                                <div class="text-xs text-gray-500">Fundação: ${a.localFundacao}</div>
-                                            </td>
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                ${a.preCadastrado 
-                                                    ? `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">Pré-Cadastrado</span>`
-                                                    : `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Sistema</span>`
-                                                }
+                                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                ${!a.preCadastrado ? `
+                                                    <button onclick="openModalAssociacao(${a.id})" class="text-blue-600 hover:text-blue-900 mr-3" title="Editar"><i data-lucide="edit" class="w-4 h-4 inline"></i></button>
+                                                    <button onclick="deleteAssociacao(${a.id})" class="text-red-600 hover:text-red-900" title="Excluir"><i data-lucide="trash-2" class="w-4 h-4 inline"></i></button>
+                                                ` : '<span class="text-gray-400 text-xs italic">Protegido</span>'}
                                             </td>
                                         </tr>
                                     `).join('')}
@@ -827,10 +743,10 @@
                     <div id="modalAssociacao" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
                          <div class="bg-white p-6 border rounded-lg shadow-xl w-full max-w-2xl">
                             <div class="flex justify-between items-center mb-4 border-b pb-2">
-                                <h3 class="text-lg font-medium text-gray-900">Cadastrar Nova Associação</h3>
+                                <h3 id="modalAssociacaoTitle" class="text-lg font-medium text-gray-900">Cadastrar Nova Associação</h3>
                                 <button onclick="document.getElementById('modalAssociacao').classList.add('hidden')" class="text-gray-400 hover:text-gray-500"><i data-lucide="x"></i></button>
                             </div>
-                            <form onsubmit="handleCreateAssociacao(event)" class="space-y-4">
+                            <form id="formAssociacao" onsubmit="handleSaveAssociacao(event)" class="space-y-4">
                                 <div class="grid grid-cols-2 gap-4">
                                     <div class="col-span-2">
                                         <label class="block text-sm font-medium text-gray-700">Nome da Associação/Órgão</label>
@@ -916,7 +832,13 @@
                                             </div>
                                         </div>
                                     </div>
-                                    
+                                    <div class="bg-gray-50 px-5 py-3 border-t border-gray-200 flex justify-end gap-3">
+                                        <button onclick="openModalDestino(${p.id}, true)" class="text-blue-600 hover:text-blue-900 text-sm font-medium flex items-center gap-1 mr-auto">
+                                            <i data-lucide="edit" class="w-4 h-4"></i> Editar Destino
+                                        </button>
+                                        <button onclick="deleteDestino(${p.id})" class="text-red-600 hover:text-red-900 text-sm font-medium flex items-center gap-1">
+                                            <i data-lucide="trash-2" class="w-4 h-4"></i> Revogar
+                                        </button>
                                     </div>
                                 </div>
                             `).join('') : `
@@ -1069,63 +991,177 @@
             }
         }
 
-        function handleCreateUser(e) {
+        // --- MÉTODOS DE USUÁRIOS ---
+        function openModalUser(id = null) {
+            state.editingId = id;
+            document.getElementById('formUser').reset();
+            const title = document.getElementById('modalUserTitle');
+            if (id) {
+                const u = DB.users.find(x => x.id === id);
+                title.innerText = "Editar Usuário";
+                document.getElementById('nu-nome').value = u.nome;
+                document.getElementById('nu-rg').value = u.rg;
+                document.getElementById('nu-nivel').value = u.nivel;
+                document.getElementById('nu-assoc').value = u.associacao;
+                document.getElementById('nu-local').value = u.local;
+            } else {
+                title.innerText = "Cadastrar Novo Usuário";
+            }
+            document.getElementById('modalUser').classList.remove('hidden');
+        }
+
+        function deleteUser(id) {
+            if(id === state.currentUser.id) return showToast("Você não pode remover a si mesmo.", "error");
+            if(confirm("Tem certeza que deseja remover este usuário permanentemente?")) {
+                DB.users = DB.users.filter(u => u.id !== id);
+                logActivity(`Removeu o usuário ID ${id}`, 'Exclusão');
+                showToast('Usuário removido com sucesso.');
+                render();
+            }
+        }
+
+        function handleSaveUser(e) {
             e.preventDefault();
-            const novoId = DB.users.length + 1;
             const nome = document.getElementById('nu-nome').value;
             const nivel = parseInt(document.getElementById('nu-nivel').value);
             
-            DB.users.push({
-                id: novoId,
-                nome: nome,
-                rg: document.getElementById('nu-rg').value,
-                senha: '123',
-                nivel: nivel,
-                bloqueado: false,
-                foto: document.getElementById('nu-foto').value,
-                associacao: document.getElementById('nu-assoc').value,
-                local: document.getElementById('nu-local').value,
-                criacao: new Date().toISOString().split('T')[0]
-            });
+            if (state.editingId) {
+                const u = DB.users.find(x => x.id === state.editingId);
+                if(u) {
+                    u.nome = nome;
+                    u.rg = document.getElementById('nu-rg').value;
+                    u.nivel = nivel;
+                    u.associacao = document.getElementById('nu-assoc').value;
+                    u.local = document.getElementById('nu-local').value;
+                    logActivity(`Editou usuário ID ${u.id}: ${nome}`, 'Edição');
+                    showToast('Usuário atualizado com sucesso.');
+                }
+            } else {
+                DB.users.push({
+                    id: DB.users.length > 0 ? Math.max(...DB.users.map(u=>u.id)) + 1 : 1,
+                    nome: nome,
+                    rg: document.getElementById('nu-rg').value,
+                    senha: '123',
+                    nivel: nivel,
+                    bloqueado: false,
+                    foto: "",
+                    associacao: document.getElementById('nu-assoc').value,
+                    local: document.getElementById('nu-local').value,
+                    criacao: new Date().toISOString().split('T')[0]
+                });
+                logActivity(`Cadastrou novo usuário: ${nome} (Nível ${nivel})`, 'Cadastro');
+                showToast('Usuário cadastrado com sucesso.');
+            }
             
-            logActivity(`Cadastrou novo usuário: ${nome} (Nível ${nivel})`, 'Cadastro');
-            showToast('Usuário cadastrado com sucesso.');
             document.getElementById('modalUser').classList.add('hidden');
             render();
         }
 
-        function handleCreateProduto(e) {
+        // --- MÉTODOS DE PRODUTOS ---
+        function openModalProduto(id = null) {
+            state.editingId = id;
+            document.getElementById('formProduto').reset();
+            const title = document.getElementById('modalProdutoTitle');
+            if (id) {
+                const p = DB.produtos.find(x => x.id === id);
+                title.innerText = "Editar Produto Apreendido";
+                document.getElementById('np-nome').value = p.nome;
+                document.getElementById('np-class').value = p.classificacao;
+                document.getElementById('np-data').value = p.dataApreensao;
+                document.getElementById('np-local').value = p.localizacao;
+                document.getElementById('np-motivo').value = p.motivo;
+                document.getElementById('np-lote').checked = p.emLote;
+                document.getElementById('np-qtd-container').classList.toggle('hidden', !p.emLote);
+                document.getElementById('np-qtd').value = p.quantidade;
+            } else {
+                title.innerText = "Registrar Produto Apreendido";
+                document.getElementById('np-qtd-container').classList.add('hidden');
+            }
+            document.getElementById('modalProduto').classList.remove('hidden');
+        }
+
+        function deleteProduto(id) {
+            if(confirm("Tem certeza que deseja remover este produto permanentemente?")) {
+                DB.produtos = DB.produtos.filter(p => p.id !== id);
+                logActivity(`Removeu o produto ID ${id}`, 'Exclusão Produto');
+                showToast('Produto removido com sucesso.');
+                render();
+            }
+        }
+
+        function handleSaveProduto(e) {
             e.preventDefault();
             const isLote = document.getElementById('np-lote').checked;
             const nome = document.getElementById('np-nome').value;
             
-            DB.produtos.push({
-                id: Math.floor(Math.random() * 1000) + 200,
-                nome: nome,
-                classificacao: document.getElementById('np-class').value,
-                localizacao: document.getElementById('np-local').value,
-                dataApreensao: document.getElementById('np-data').value,
-                motivo: document.getElementById('np-motivo').value,
-                emLote: isLote,
-                quantidade: isLote ? document.getElementById('np-qtd').value : 1,
-                destino: null
-            });
+            if (state.editingId) {
+                const p = DB.produtos.find(x => x.id === state.editingId);
+                if(p) {
+                    p.nome = nome;
+                    p.classificacao = document.getElementById('np-class').value;
+                    p.localizacao = document.getElementById('np-local').value;
+                    p.dataApreensao = document.getElementById('np-data').value;
+                    p.motivo = document.getElementById('np-motivo').value;
+                    p.emLote = isLote;
+                    p.quantidade = isLote ? document.getElementById('np-qtd').value : 1;
+                    logActivity(`Editou produto ID ${p.id}: ${nome}`, 'Edição Produto');
+                    showToast('Produto atualizado com sucesso.');
+                }
+            } else {
+                DB.produtos.push({
+                    id: Math.floor(Math.random() * 1000) + 200,
+                    nome: nome,
+                    classificacao: document.getElementById('np-class').value,
+                    localizacao: document.getElementById('np-local').value,
+                    dataApreensao: document.getElementById('np-data').value,
+                    motivo: document.getElementById('np-motivo').value,
+                    emLote: isLote,
+                    quantidade: isLote ? document.getElementById('np-qtd').value : 1,
+                    destino: null
+                });
+                logActivity(`Registrou apreensão de produto: ${nome}`, 'Cadastro Produto');
+                showToast('Produto registrado com sucesso.');
+            }
             
-            logActivity(`Registrou apreensão de produto: ${nome}`, 'Cadastro Produto');
-            showToast('Produto registrado com sucesso.');
             document.getElementById('modalProduto').classList.add('hidden');
             render();
         }
 
-        function openDestinacaoModal(prodId) {
+        // --- MÉTODOS DE DESTINAÇÕES ---
+        function openModalDestino(prodId, isEdit = false) {
             const p = DB.produtos.find(x => x.id === prodId);
             if(!p) return;
+            state.editingId = isEdit ? prodId : null;
+            document.getElementById('formDestino').reset();
             document.getElementById('nd-prodId').value = p.id;
-            document.getElementById('nd-prodInfo').innerHTML = `<strong>Produto selecionado:</strong> ${p.nome} (ID: ${p.id})`;
+            document.getElementById('nd-prodInfo').innerHTML = `<strong>Produto:</strong> ${p.nome} (ID: ${p.id})`;
+            
+            if (isEdit && p.destino) {
+                document.getElementById('nd-funcao').value = p.destino.funcao;
+                document.getElementById('nd-local').value = p.destino.local;
+                // Previne erros se o usuário atribuído foi excluído
+                if(document.querySelector(`#nd-user option[value="${p.destino.usuarioId}"]`)){
+                    document.getElementById('nd-user').value = p.destino.usuarioId;
+                }
+                document.getElementById('nd-periodo').value = p.destino.periodoChecagem;
+            }
+            
             document.getElementById('modalDestino').classList.remove('hidden');
         }
 
-        function handleAtribuirDestino(e) {
+        function deleteDestino(prodId) {
+            if(confirm("Tem certeza que deseja revogar a destinação deste produto? Ele voltará ao status 'Em Depósito'.")) {
+                const p = DB.produtos.find(x => x.id === prodId);
+                if(p) {
+                    p.destino = null;
+                    logActivity(`Revogou a destinação do produto ID ${prodId}`, 'Revogação Destino');
+                    showToast('Destinação revogada com sucesso.');
+                    render();
+                }
+            }
+        }
+
+        function handleSaveDestino(e) {
             e.preventDefault();
             const prodId = parseInt(document.getElementById('nd-prodId').value);
             const p = DB.produtos.find(x => x.id === prodId);
@@ -1133,39 +1169,83 @@
             const user = DB.users.find(u => u.id === userId);
             
             if(p && user) {
+                const isEdit = !!state.editingId;
                 p.destino = {
                     local: document.getElementById('nd-local').value,
                     funcao: document.getElementById('nd-funcao').value,
                     usuarioId: user.id,
                     associacao: user.associacao,
                     periodoChecagem: document.getElementById('nd-periodo').value,
-                    dataAtribuicao: new Date().toISOString().split('T')[0]
+                    dataAtribuicao: isEdit ? p.destino.dataAtribuicao : new Date().toLocaleDateString('pt-BR')
                 };
                 
-                logActivity(`Atribuiu destino ao produto ID ${p.id} para o usuário ID ${user.id} (${user.nome})`, 'Destinação');
-                showToast('Destinação atribuída com sucesso.');
+                logActivity(`${isEdit ? 'Editou' : 'Atribuiu'} destino ao produto ID ${p.id}`, 'Destinação');
+                showToast(`Destinação ${isEdit ? 'atualizada' : 'atribuída'} com sucesso.`);
                 document.getElementById('modalDestino').classList.add('hidden');
                 render();
             }
         }
 
-        function handleCreateAssociacao(e) {
+        // --- MÉTODOS DE ASSOCIAÇÕES ---
+        function openModalAssociacao(id = null) {
+            state.editingId = id;
+            document.getElementById('formAssociacao').reset();
+            const title = document.getElementById('modalAssociacaoTitle');
+            if (id) {
+                const a = DB.associacoes.find(x => x.id === id);
+                title.innerText = "Editar Associação";
+                document.getElementById('na-nome').value = a.nome;
+                document.getElementById('na-ramo').value = a.ramo;
+                document.getElementById('na-lider').value = a.lider;
+                document.getElementById('na-operacao').value = a.localOperacao;
+                document.getElementById('na-fundacao').value = a.localFundacao;
+                document.getElementById('na-lucrativo').checked = a.lucrativo;
+            } else {
+                title.innerText = "Cadastrar Nova Associação";
+            }
+            document.getElementById('modalAssociacao').classList.remove('hidden');
+        }
+
+        function deleteAssociacao(id) {
+            if(confirm("Tem certeza que deseja remover esta associação permanentemente?")) {
+                DB.associacoes = DB.associacoes.filter(a => a.id !== id);
+                logActivity(`Removeu a associação ID ${id}`, 'Exclusão Associação');
+                showToast('Associação removida com sucesso.');
+                render();
+            }
+        }
+
+        function handleSaveAssociacao(e) {
             e.preventDefault();
             const nome = document.getElementById('na-nome').value;
             
-            DB.associacoes.push({
-                id: DB.associacoes.length + 1,
-                nome: nome,
-                ramo: document.getElementById('na-ramo').value,
-                lucrativo: document.getElementById('na-lucrativo').checked,
-                localFundacao: document.getElementById('na-fundacao').value,
-                lider: document.getElementById('na-lider').value,
-                localOperacao: document.getElementById('na-operacao').value,
-                preCadastrado: false
-            });
+            if (state.editingId) {
+                const a = DB.associacoes.find(x => x.id === state.editingId);
+                if (a) {
+                    a.nome = nome;
+                    a.ramo = document.getElementById('na-ramo').value;
+                    a.lucrativo = document.getElementById('na-lucrativo').checked;
+                    a.localFundacao = document.getElementById('na-fundacao').value;
+                    a.lider = document.getElementById('na-lider').value;
+                    a.localOperacao = document.getElementById('na-operacao').value;
+                    logActivity(`Editou associação/órgão ID ${a.id}: ${nome}`, 'Edição Associação');
+                    showToast('Associação atualizada com sucesso.');
+                }
+            } else {
+                DB.associacoes.push({
+                    id: DB.associacoes.length > 0 ? Math.max(...DB.associacoes.map(a=>a.id)) + 1 : 1,
+                    nome: nome,
+                    ramo: document.getElementById('na-ramo').value,
+                    lucrativo: document.getElementById('na-lucrativo').checked,
+                    localFundacao: document.getElementById('na-fundacao').value,
+                    lider: document.getElementById('na-lider').value,
+                    localOperacao: document.getElementById('na-operacao').value,
+                    preCadastrado: false
+                });
+                logActivity(`Cadastrou nova associação/órgão: ${nome}`, 'Cadastro Associação');
+                showToast('Associação cadastrada com sucesso.');
+            }
             
-            logActivity(`Cadastrou nova associação/órgão: ${nome}`, 'Cadastro');
-            showToast('Associação cadastrada com sucesso.');
             document.getElementById('modalAssociacao').classList.add('hidden');
             render();
         }
