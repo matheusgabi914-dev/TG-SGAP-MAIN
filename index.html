@@ -84,6 +84,94 @@
             }, 3000);
         }
 
+        // --- SISTEMA DE MODAIS CUSTOMIZADOS (ALERTS E CONFIRMS) ---
+        function customAlert(message, title = 'Aviso') {
+            const container = document.getElementById('custom-dialog-container') || createDialogContainer();
+            container.innerHTML = `
+                <div class="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-[100] flex items-center justify-center transition-opacity">
+                    <div class="bg-white p-6 border rounded-xl shadow-2xl w-full max-w-sm transform transition-all">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                                <i data-lucide="info" class="w-6 h-6 text-blue-600"></i>
+                            </div>
+                            <h3 class="text-lg font-medium text-gray-900">${title}</h3>
+                        </div>
+                        <p class="text-sm text-gray-600 mb-6">${message}</p>
+                        <div class="flex justify-end">
+                            <button onclick="closeCustomDialog()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 w-full sm:w-auto transition-colors">Entendido</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        function customConfirm(message, title = 'Confirmação', isDanger = false) {
+            return new Promise((resolve) => {
+                const container = document.getElementById('custom-dialog-container') || createDialogContainer();
+                const iconColor = isDanger ? 'text-red-600' : 'text-yellow-600';
+                const iconBg = isDanger ? 'bg-red-100' : 'bg-yellow-100';
+                const btnColor = isDanger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700';
+                const iconName = isDanger ? 'alert-triangle' : 'help-circle';
+
+                container.innerHTML = `
+                    <div class="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-[100] flex items-center justify-center transition-opacity">
+                        <div class="bg-white p-6 border rounded-xl shadow-2xl w-full max-w-sm transform transition-all">
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="w-10 h-10 rounded-full ${iconBg} flex items-center justify-center flex-shrink-0">
+                                    <i data-lucide="${iconName}" class="w-6 h-6 ${iconColor}"></i>
+                                </div>
+                                <h3 class="text-lg font-medium text-gray-900">${title}</h3>
+                            </div>
+                            <p class="text-sm text-gray-600 mb-6 whitespace-pre-line">${message}</p>
+                            <div class="flex justify-end gap-3">
+                                <button id="btn-dialog-cancel" class="bg-white border border-gray-300 rounded-md shadow-sm px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none transition-colors w-full sm:w-auto">Cancelar</button>
+                                <button id="btn-dialog-confirm" class="${btnColor} text-white px-4 py-2 rounded-md shadow-sm text-sm font-medium focus:outline-none transition-colors w-full sm:w-auto">Confirmar</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                lucide.createIcons();
+
+                document.getElementById('btn-dialog-cancel').onclick = () => {
+                    closeCustomDialog();
+                    resolve(false);
+                };
+                document.getElementById('btn-dialog-confirm').onclick = () => {
+                    closeCustomDialog();
+                    resolve(true);
+                };
+            });
+        }
+
+        function createDialogContainer() {
+            const div = document.createElement('div');
+            div.id = 'custom-dialog-container';
+            document.body.appendChild(div);
+            return div;
+        }
+
+        function closeCustomDialog() {
+            const container = document.getElementById('custom-dialog-container');
+            if (container) container.innerHTML = '';
+        }
+        // -----------------------------------------------------------
+
+        function maskCPF(event) {
+            let input = event.target;
+            let value = input.value.replace(/\D/g, ''); // Remove tudo o que não é dígito
+            if (value.length > 11) value = value.slice(0, 11); // Limita a 11 dígitos
+
+            if (value.length > 9) {
+                value = value.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2})/, "$1.$2.$3-$4");
+            } else if (value.length > 6) {
+                value = value.replace(/(\d{3})(\d{3})(\d{1,3})/, "$1.$2.$3");
+            } else if (value.length > 3) {
+                value = value.replace(/(\d{3})(\d{1,3})/, "$1.$2");
+            }
+            input.value = value;
+        }
+
         function logActivity(acao, tipo) {
             if(!state.currentUser) return;
             const now = new Date();
@@ -179,7 +267,7 @@
                                         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                             <i data-lucide="user" class="h-5 w-5 text-gray-400"></i>
                                         </div>
-                                        <input type="text" id="loginDoc" required class="pl-10 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="Ex: 111.111.111-11">
+                                        <input type="text" id="loginDoc" required oninput="maskCPF(event)" maxlength="14" class="pl-10 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="Ex: 111.111.111-11">
                                     </div>
                                 </div>
                                 <div>
@@ -206,7 +294,7 @@
                                 </div>
                                 
                                 <div class="flex items-center justify-between mt-4">
-                                    <a href="#" onclick="alert('Processo rígido: Contate a administração central para recuperação presencial.')" class="text-sm font-medium text-blue-600 hover:text-blue-500">Esqueceu a senha?</a>
+                                    <a href="#" onclick="customAlert('Processo rígido: Contate a administração central para recuperação presencial.', 'Recuperação de Senha')" class="text-sm font-medium text-blue-600 hover:text-blue-500">Esqueceu a senha?</a>
                                 </div>
 
                                 <button type="submit" id="btn-login" class="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 mt-6 transition-colors">
@@ -508,8 +596,8 @@
                                         <input type="text" id="nu-nome" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
                                     </div>
                                     <div>
-                                        <label class="block text-sm font-medium text-gray-700">RG / Documento</label>
-                                        <input type="text" id="nu-rg" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm">
+                                        <label class="block text-sm font-medium text-gray-700">RG / Documento (CPF)</label>
+                                        <input type="text" id="nu-rg" required oninput="maskCPF(event)" maxlength="14" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 sm:text-sm" placeholder="Ex: 111.111.111-11">
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700">Data de Nascimento</label>
@@ -637,7 +725,7 @@
                                 <div>
                                     <div class="flex items-center justify-between mb-2">
                                         <label class="block text-sm font-medium text-gray-700">Entrada de Dados</label>
-                                        <span class="text-xs text-blue-600 flex items-center gap-1 cursor-pointer" onclick="alert('Simulação: Conectando com Banco de Dados Governamental... Preenchimento automático ativado.')"><i data-lucide="database" class="w-3 h-3"></i> Sincronizar Base Auto</span>
+                                        <span class="text-xs text-blue-600 flex items-center gap-1 cursor-pointer" onclick="customAlert('Simulação: Conectando com Banco de Dados Governamental... Preenchimento automático ativado.', 'Sincronização')"><i data-lucide="database" class="w-3 h-3"></i> Sincronizar Base Auto</span>
                                     </div>
                                     <hr class="mb-4">
                                 </div>
@@ -1060,7 +1148,7 @@
                 
                 if (user) {
                     if (user.bloqueado) {
-                        alert("ERRO: Usuário bloqueado no sistema. Contate a administração.");
+                        customAlert("ERRO: Usuário bloqueado no sistema. Contate a administração.", "Acesso Bloqueado");
                         btn.innerHTML = 'Acessar Sistema';
                         btn.disabled = false;
                         return;
@@ -1070,7 +1158,7 @@
                     navigate('dashboard');
                     showToast('Login realizado com sucesso (2FA validado)');
                 } else {
-                    alert("Credenciais inválidas.");
+                    customAlert("Credenciais inválidas.", "Erro de Login");
                     btn.innerHTML = 'Acessar Sistema';
                     btn.disabled = false;
                 }
@@ -1155,9 +1243,11 @@
             document.getElementById('modalUser').classList.remove('hidden');
         }
 
-        function deleteUser(id) {
+        async function deleteUser(id) {
             if(id === state.currentUser.id) return showToast("Você não pode remover a si mesmo.", "error");
-            if(confirm("Tem certeza que deseja remover este usuário permanentemente?")) {
+            
+            const confirmed = await customConfirm("Tem certeza que deseja remover este usuário permanentemente?", "Excluir Usuário", true);
+            if(confirmed) {
                 DB.users = DB.users.filter(u => u.id !== id);
                 logActivity(`Removeu o usuário ID ${id}`, 'Exclusão');
                 showToast('Usuário removido com sucesso.');
@@ -1225,8 +1315,9 @@
             document.getElementById('modalProduto').classList.remove('hidden');
         }
 
-        function deleteProduto(id) {
-            if(confirm("Tem certeza que deseja remover este produto permanentemente?")) {
+        async function deleteProduto(id) {
+            const confirmed = await customConfirm("Tem certeza que deseja remover este produto permanentemente?", "Excluir Produto", true);
+            if(confirmed) {
                 DB.produtos = DB.produtos.filter(p => p.id !== id);
                 logActivity(`Removeu o produto ID ${id}`, 'Exclusão Produto');
                 showToast('Produto removido com sucesso.');
@@ -1294,8 +1385,9 @@
             document.getElementById('modalDestino').classList.remove('hidden');
         }
 
-        function deleteDestino(prodId) {
-            if(confirm("Tem certeza que deseja revogar a destinação deste produto? Ele voltará ao status 'Em Depósito'.")) {
+        async function deleteDestino(prodId) {
+            const confirmed = await customConfirm("Tem certeza que deseja revogar a destinação deste produto? Ele voltará ao status 'Em Depósito'.", "Revogar Destinação", true);
+            if(confirmed) {
                 const p = DB.produtos.find(x => x.id === prodId);
                 if(p) {
                     p.destino = null;
@@ -1306,11 +1398,12 @@
             }
         }
 
-        function handleSaveDestino(e) {
+        async function handleSaveDestino(e) {
             e.preventDefault();
             
             // Requisito: Mensagem "Tem Certeza?!"
-            if(!confirm("Tem certeza que deseja confirmar as informações desta destinação?")) {
+            const confirmed = await customConfirm("Tem certeza que deseja confirmar as informações desta destinação?", "Confirmar Destinação");
+            if(!confirmed) {
                 return;
             }
 
@@ -1338,8 +1431,9 @@
             }
         }
 
-        function marcarRecebido(prodId) {
-            if(confirm("Deseja marcar este produto como RECEBIDO? \nEssa ação removerá a possibilidade de editar ou revogar a destinação futuramente.")) {
+        async function marcarRecebido(prodId) {
+            const confirmed = await customConfirm("Deseja marcar este produto como RECEBIDO? \n\nEssa ação removerá a possibilidade de editar ou revogar a destinação futuramente.", "Marcar como Recebido", false);
+            if(confirmed) {
                 const p = DB.produtos.find(x => x.id === prodId);
                 if(p && p.destino) {
                     p.destino.recebido = true;
@@ -1370,8 +1464,9 @@
             document.getElementById('modalAssociacao').classList.remove('hidden');
         }
 
-        function deleteAssociacao(id) {
-            if(confirm("Tem certeza que deseja remover esta associação permanentemente?")) {
+        async function deleteAssociacao(id) {
+            const confirmed = await customConfirm("Tem certeza que deseja remover esta associação permanentemente?", "Excluir Associação", true);
+            if(confirmed) {
                 DB.associacoes = DB.associacoes.filter(a => a.id !== id);
                 logActivity(`Removeu a associação ID ${id}`, 'Exclusão Associação');
                 showToast('Associação removida com sucesso.');
