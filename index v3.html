@@ -1,0 +1,1550 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SGAP - Sistema de Gestão e Aplicação de Produtos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Bibliotecas para Exportação PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #e2e8f0; /* bg-slate-200 para uma base mais escura */
+        }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Loading spinner */
+        .loader {
+            border: 3px solid #cbd5e1;
+            border-top: 3px solid #334155;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="text-slate-900 antialiased min-h-screen flex flex-col">
+
+    <!-- Container Principal do App -->
+    <div id="app-container" class="w-full h-screen flex overflow-hidden"></div>
+
+    <!-- Scripts de Lógica e Renderização -->
+    <script>
+        const DB = {
+            users: [
+                { id: 1, nome: "Inspetor Chefe", rg: "111.111.111-11", senha: "admin", nivel: 3, bloqueado: false, foto: "", associacao: "Governo Federal", local: "Brasília/DF", criacao: "2023-01-10" },
+                { id: 2, nome: "Agente Silva", rg: "222.222.222-22", senha: "123", nivel: 2, bloqueado: false, foto: "", associacao: "Polícia Civil", local: "São Paulo/SP", criacao: "2023-05-20" },
+                { id: 3, nome: "Operador de Campo", rg: "333.333.333-33", senha: "123", nivel: 1, bloqueado: false, foto: "", associacao: "Empresa Local X", local: "Rio de Janeiro/RJ", criacao: "2023-10-05" }
+            ],
+            associacoes: [
+                { id: 1, nome: "Governo Federal (Receita)", ramo: "Governamental", lucrativo: false, localFundacao: "Brasília", lider: "Ministro da Fazenda", localOperacao: "Nacional", preCadastrado: true },
+                { id: 2, nome: "ONG Vida Tech", ramo: "Educação Tecnológica", lucrativo: false, localFundacao: "São Paulo", lider: "Maria Oliveira", localOperacao: "São Paulo", preCadastrado: false }
+            ],
+            produtos: [
+                { id: 101, nome: "Lote de Notebooks Dell", classificacao: "Eletrônico", localizacao: "Galpão Central - SP", dataApreensao: "2024-03-15", motivo: "Descaminho", emLote: true, quantidade: 50, destino: null },
+                { id: 102, nome: "Caminhão de Bebidas Destiladas", classificacao: "Bebida", localizacao: "Pátio Receita - PR", dataApreensao: "2024-04-10", motivo: "Falsificação", emLote: true, quantidade: 5000, destino: { local: "Destruição/Reciclagem PR", funcao: "Descarte ecológico", usuarioId: 2, associacao: "Polícia Civil", periodoChecagem: "Único", recebido: false, dataAtribuicao: "20/04/2024" } }
+            ],
+            logs: [
+                { id: 1, dataHora: "2024-04-20 08:00", usuarioNome: "Inspetor Chefe", acao: "Login no sistema via IP 192.168.0.1", tipo: "Acesso" },
+                { id: 2, dataHora: "2024-04-20 09:30", usuarioNome: "Agente Silva", acao: "Atribuiu destino ao produto ID 102", tipo: "Destinação" }
+            ]
+        };
+
+        const state = {
+            currentUser: null,
+            currentView: 'login', 
+            toast: null,
+            editingId: null,
+            mobileMenuOpen: false
+        };
+
+        function showToast(message, type = 'success') {
+            const colors = type === 'success' ? 'bg-slate-800' : 'bg-red-800';
+            const toastHtml = `
+                <div id="toast" class="fixed bottom-4 right-4 ${colors} text-white px-6 py-3 rounded-lg shadow-xl transform transition-all duration-300 translate-y-0 z-50 flex items-center gap-2 border border-slate-700">
+                    <i data-lucide="${type === 'success' ? 'check-circle' : 'alert-circle'}"></i>
+                    <span class="text-sm font-medium">${message}</span>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', toastHtml);
+            lucide.createIcons();
+            setTimeout(() => {
+                const t = document.getElementById('toast');
+                if(t) {
+                    t.classList.add('translate-y-20', 'opacity-0');
+                    setTimeout(() => t.remove(), 300);
+                }
+            }, 3000);
+        }
+
+        function customAlert(message, title = 'Aviso') {
+            const container = document.getElementById('custom-dialog-container') || createDialogContainer();
+            container.innerHTML = `
+                <div class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm overflow-y-auto h-full w-full z-[100] flex items-center justify-center p-4">
+                    <div class="bg-white p-6 border border-slate-300 rounded-2xl shadow-2xl w-full max-w-sm transform scale-100 transition-all">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0">
+                                <i data-lucide="info" class="w-5 h-5 text-slate-800"></i>
+                            </div>
+                            <h3 class="text-lg font-bold text-slate-900">${title}</h3>
+                        </div>
+                        <p class="text-sm text-slate-700 mb-6 leading-relaxed">${message}</p>
+                        <div class="flex justify-end">
+                            <button onclick="closeCustomDialog()" class="bg-slate-900 hover:bg-slate-800 text-white px-5 py-2 rounded-xl shadow-sm text-sm font-medium transition-colors w-full sm:w-auto">Entendido</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        function customConfirm(message, title = 'Confirmação', isDanger = false) {
+            return new Promise((resolve) => {
+                const container = document.getElementById('custom-dialog-container') || createDialogContainer();
+                const iconColor = isDanger ? 'text-red-700' : 'text-slate-800';
+                const iconBg = isDanger ? 'bg-red-100' : 'bg-slate-200';
+                const btnColor = isDanger ? 'bg-red-700 hover:bg-red-800' : 'bg-slate-900 hover:bg-slate-800';
+                const iconName = isDanger ? 'alert-triangle' : 'help-circle';
+
+                container.innerHTML = `
+                    <div class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm overflow-y-auto h-full w-full z-[100] flex items-center justify-center p-4">
+                        <div class="bg-white p-6 border border-slate-300 rounded-2xl shadow-2xl w-full max-w-sm transform scale-100 transition-all">
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="w-10 h-10 rounded-full ${iconBg} flex items-center justify-center flex-shrink-0">
+                                    <i data-lucide="${iconName}" class="w-5 h-5 ${iconColor}"></i>
+                                </div>
+                                <h3 class="text-lg font-bold text-slate-900">${title}</h3>
+                            </div>
+                            <p class="text-sm text-slate-700 mb-6 leading-relaxed whitespace-pre-line">${message}</p>
+                            <div class="flex flex-col sm:flex-row justify-end gap-3">
+                                <button id="btn-dialog-cancel" class="bg-white border border-slate-300 rounded-xl shadow-sm px-5 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100 transition-colors order-2 sm:order-1">Cancelar</button>
+                                <button id="btn-dialog-confirm" class="${btnColor} text-white px-5 py-2 rounded-xl shadow-sm text-sm font-medium transition-colors order-1 sm:order-2">${isDanger ? 'Excluir' : 'Confirmar'}</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                lucide.createIcons();
+
+                document.getElementById('btn-dialog-cancel').onclick = () => {
+                    closeCustomDialog();
+                    resolve(false);
+                };
+                document.getElementById('btn-dialog-confirm').onclick = () => {
+                    closeCustomDialog();
+                    resolve(true);
+                };
+            });
+        }
+
+        function createDialogContainer() {
+            const div = document.createElement('div');
+            div.id = 'custom-dialog-container';
+            document.body.appendChild(div);
+            return div;
+        }
+
+        function closeCustomDialog() {
+            const container = document.getElementById('custom-dialog-container');
+            if (container) container.innerHTML = '';
+        }
+
+        function maskCPF(event) {
+            let input = event.target;
+            let value = input.value.replace(/\D/g, ''); 
+            if (value.length > 11) value = value.slice(0, 11); 
+
+            if (value.length > 9) {
+                value = value.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2})/, "$1.$2.$3-$4");
+            } else if (value.length > 6) {
+                value = value.replace(/(\d{3})(\d{3})(\d{1,3})/, "$1.$2.$3");
+            } else if (value.length > 3) {
+                value = value.replace(/(\d{3})(\d{1,3})/, "$1.$2");
+            }
+            input.value = value;
+        }
+
+        function logActivity(acao, tipo) {
+            if(!state.currentUser) return;
+            const now = new Date();
+            const formattedDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+            DB.logs.unshift({
+                id: DB.logs.length + 1,
+                dataHora: formattedDate,
+                usuarioNome: state.currentUser.nome,
+                acao: acao,
+                tipo: tipo
+            });
+        }
+
+        function navigate(view) {
+            state.currentView = view;
+            state.mobileMenuOpen = false; 
+            render();
+        }
+
+        function toggleMobileMenu() {
+            state.mobileMenuOpen = !state.mobileMenuOpen;
+            render();
+        }
+
+        function getLevelBadge(level) {
+            if(level === 3) return `<span class="bg-red-100 text-red-800 text-xs font-bold px-2.5 py-0.5 rounded-lg border border-red-300">Alto (Admin)</span>`;
+            if(level === 2) return `<span class="bg-amber-100 text-amber-800 text-xs font-bold px-2.5 py-0.5 rounded-lg border border-amber-300">Médio (Agente)</span>`;
+            return `<span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-0.5 rounded-lg border border-emerald-300">Baixo (Operador)</span>`;
+        }
+
+        function exportLogsPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.setFontSize(14);
+            doc.text("SGAP - Registro Geral de Logs e Auditoria", 14, 15);
+            doc.autoTable({
+                startY: 20,
+                head: [['Data/Hora', 'Usuário', 'Tipo', 'Ação']],
+                body: DB.logs.map(l => [l.dataHora, l.usuarioNome, l.tipo, l.acao])
+            });
+            doc.save("SGAP_Logs.pdf");
+            showToast("Relatório de Logs exportado em PDF!");
+        }
+
+        function exportProdutosPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.setFontSize(14);
+            doc.text("SGAP - Relatório de Produtos Apreendidos", 14, 15);
+            doc.autoTable({
+                startY: 20,
+                head: [['ID', 'Item', 'Classificação', 'Data Apreensão', 'Status']],
+                body: DB.produtos.map(p => [p.id, p.nome, p.classificacao, p.dataApreensao, p.destino ? 'Destinado' : 'Em Depósito'])
+            });
+            doc.save("SGAP_Produtos.pdf");
+            showToast("Relatório de Produtos exportado em PDF!");
+        }
+
+        function exportDestinacoesPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.setFontSize(14);
+            doc.text("SGAP - Relatório de Destinações Ativas", 14, 15);
+            const ativos = DB.produtos.filter(p => p.destino);
+            doc.autoTable({
+                startY: 20,
+                head: [['ID Produto', 'Função', 'Local Destino', 'Associação', 'Status']],
+                body: ativos.map(p => [p.id, p.destino.funcao, p.destino.local, p.destino.associacao, p.destino.recebido ? 'Recebido' : 'Pendente'])
+            });
+            doc.save("SGAP_Destinacoes.pdf");
+            showToast("Relatório de Destinações exportado em PDF!");
+        }
+
+    function renderLogin() {
+    return `
+        <div class="flex w-full min-h-screen bg-slate-950 items-center justify-center p-3 sm:p-4 md:p-6 overflow-y-auto">
+            
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md sm:max-w-lg md:max-w-md lg:max-w-lg overflow-hidden flex flex-col border border-slate-300">
+                
+                <div class="bg-slate-900 p-6 sm:p-8 text-center text-white">
+                    <div class="mx-auto w-14 h-14 sm:w-16 sm:h-16 bg-slate-800 rounded-2xl flex items-center justify-center mb-4 shadow-lg border border-slate-700">
+                        <i data-lucide="shield-check" class="w-7 h-7 sm:w-8 sm:h-8 text-slate-200"></i>
+                    </div>
+
+                    <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-100">
+                        SGAP
+                    </h1>
+
+                    <p class="text-slate-400 text-xs sm:text-sm mt-2 px-2">
+                        Sistema de Gestão e Aplicação de Produtos
+                    </p>
+                </div>
+
+                <div class="p-5 sm:p-6 md:p-8">
+                    
+                    <form id="loginForm" class="space-y-4" onsubmit="handleLogin(event)">
+                        
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-800 mb-1">
+                                Documento (RG/CPF)
+                            </label>
+
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <i data-lucide="user" class="h-5 w-5 text-slate-500"></i>
+                                </div>
+
+                                <input 
+                                    type="text" 
+                                    id="loginDoc" 
+                                    required 
+                                    oninput="maskCPF(event)" 
+                                    maxlength="14" 
+                                    class="pl-10 block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500 text-sm text-slate-900 placeholder-slate-400"
+                                    placeholder="Ex: 111.111.111-11"
+                                >
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-800 mb-1">
+                                Senha do Sistema
+                            </label>
+
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <i data-lucide="lock" class="h-5 w-5 text-slate-500"></i>
+                                </div>
+
+                                <input 
+                                    type="password" 
+                                    id="loginSenha" 
+                                    required 
+                                    class="pl-10 block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500 text-sm text-slate-900 placeholder-slate-400"
+                                    placeholder="••••••••"
+                                >
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mb-1">
+                                
+                                <label class="block text-sm font-semibold text-slate-800">
+                                    Código 2FA (Obrigatório)
+                                </label>
+
+                                <a href="#" class="text-xs font-bold text-blue-700 hover:text-blue-900">
+                                    App Autenticador
+                                </a>
+                            </div>
+
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <i data-lucide="smartphone" class="h-5 w-5 text-slate-500"></i>
+                                </div>
+
+                                <input 
+                                    type="text" 
+                                    id="login2fa" 
+                                    required 
+                                    class="pl-10 block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500 text-sm text-slate-900"
+                                    placeholder="123456" 
+                                    value="123456"
+                                >
+                            </div>
+
+                            <p class="text-xs text-slate-500 mt-1">
+                                Para testes, qualquer código funciona.
+                            </p>
+                        </div>
+
+                        <div class="mt-2 flex justify-start">
+                            <a 
+                                href="#" 
+                                onclick="customAlert('Para recuperar sua senha, contate a administração central de forma presencial para auditoria física.', 'Recuperação de Acesso')" 
+                                class="text-sm font-bold text-blue-700 hover:text-blue-900"
+                            >
+                                Esqueceu a senha?
+                            </a>
+                        </div>
+
+                        <button 
+                            type="submit" 
+                            id="btn-login" 
+                            class="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-md text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 focus:outline-none transition-colors mt-2"
+                        >
+                            Acessar Sistema
+                        </button>
+                    </form>
+
+                    <div class="mt-6 bg-slate-100 border border-slate-300 rounded-xl p-3 sm:p-4 text-[11px] sm:text-xs text-slate-700 shadow-inner break-words">
+                        
+                        <p class="font-bold text-slate-900 mb-2">
+                            Contas de Teste:
+                        </p>
+
+                        <div class="space-y-1">
+                            <p>Admin (Nível 3): RG: 111.111.111-11 | Senha: admin</p>
+                            <p>Agente (Nível 2): RG: 222.222.222-22 | Senha: 123</p>
+                            <p>Operador (Nível 1): RG: 333.333.333-33 | Senha: 123</p>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+        function renderSidebar() {
+            const userLevel = state.currentUser.nivel;
+            return `
+                <!-- Mobile Drawer Backdrop -->
+                ${state.mobileMenuOpen ? `<div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 md:hidden" onclick="toggleMobileMenu()"></div>` : ''}
+                
+                <div class="${state.mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} fixed md:relative inset-y-0 left-0 w-64 bg-slate-950 text-slate-300 flex flex-col h-full shadow-2xl z-50 transition-transform duration-300 ease-in-out shrink-0">
+                    <div class="p-6 flex items-center justify-between border-b border-slate-800/80">
+                        <div class="flex items-center gap-3">
+                            <div class="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center shadow-inner border border-slate-700">
+                                <i data-lucide="shield" class="text-slate-200 w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h2 class="font-extrabold text-base tracking-wider text-white">SGAP</h2>
+                                <p class="text-[10px] text-slate-400">GovSystem v2.6</p>
+                            </div>
+                        </div>
+                        <button onclick="toggleMobileMenu()" class="md:hidden text-slate-400 hover:text-white">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="p-4 border-b border-slate-800/80 bg-slate-900">
+                        <p class="text-xs text-slate-400 font-medium">Usuário Conectado</p>
+                        <p class="text-sm font-bold text-slate-100 truncate mt-0.5">${state.currentUser.nome}</p>
+                        <p class="text-[10px] text-slate-400 mt-1.5 flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Online | Nível ${state.currentUser.nivel}
+                        </p>
+                    </div>
+
+                    <nav class="flex-1 overflow-y-auto py-4 space-y-1 px-3 hide-scroll">
+                        <a href="#" onclick="navigate('dashboard')" class="${state.currentView === 'dashboard' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800/50'} group flex items-center px-3 py-2.5 text-sm font-semibold rounded-xl transition-all">
+                            <i data-lucide="layout-dashboard" class="mr-3 h-5 w-5"></i>
+                            Painel de Controle
+                        </a>
+                        
+                        ${userLevel >= 2 ? `
+                        <div class="pt-4 pb-1"><p class="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Gestão de Bens</p></div>
+                        <a href="#" onclick="navigate('produtos')" class="${state.currentView === 'produtos' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800/50'} group flex items-center px-3 py-2.5 text-sm font-semibold rounded-xl transition-all">
+                            <i data-lucide="package" class="mr-3 h-5 w-5"></i>
+                            Produtos Apreendidos
+                        </a>
+                        ` : ''}
+
+                        ${userLevel >= 1 ? `
+                        <a href="#" onclick="navigate('destinacao')" class="${state.currentView === 'destinacao' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800/50'} group flex items-center px-3 py-2.5 text-sm font-semibold rounded-xl transition-all">
+                            <i data-lucide="arrow-right-left" class="mr-3 h-5 w-5"></i>
+                            Destinações Ativas
+                        </a>
+                        ` : ''}
+
+                        ${userLevel >= 1 ? `
+                        <div class="pt-4 pb-1"><p class="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Cadastros Base</p></div>
+                        <a href="#" onclick="navigate('associacoes')" class="${state.currentView === 'associacoes' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800/50'} group flex items-center px-3 py-2.5 text-sm font-semibold rounded-xl transition-all">
+                            <i data-lucide="building-2" class="mr-3 h-5 w-5"></i>
+                            Associações / Órgãos
+                        </a>
+                        ` : ''}
+
+                        ${userLevel === 3 ? `
+                        <div class="pt-4 pb-1"><p class="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Administração</p></div>
+                        <a href="#" onclick="navigate('usuarios')" class="${state.currentView === 'usuarios' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800/50'} group flex items-center px-3 py-2.5 text-sm font-semibold rounded-xl transition-all">
+                            <i data-lucide="users" class="mr-3 h-5 w-5"></i>
+                            Controle de Usuários
+                        </a>
+                        <a href="#" onclick="navigate('auditoria')" class="${state.currentView === 'auditoria' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800/50'} group flex items-center px-3 py-2.5 text-sm font-semibold rounded-xl transition-all">
+                            <i data-lucide="clipboard-list" class="mr-3 h-5 w-5"></i>
+                            Auditoria / Logs
+                        </a>
+                        ` : ''}
+                    </nav>
+                    
+                    <div class="p-4 bg-slate-900 border-t border-slate-800/80">
+                        <button onclick="handleLogout()" class="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-700 rounded-xl text-sm font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition-colors">
+                            <i data-lucide="log-out" class="h-4 w-4"></i> Encerrar Sessão
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderTopbar(title) {
+            return `
+                <header class="bg-white shadow-sm border-b border-slate-300 sticky top-0 z-10 w-full shrink-0">
+                    <div class="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <button onclick="toggleMobileMenu()" class="text-slate-700 hover:text-slate-900 md:hidden p-2 rounded-xl border border-slate-300 bg-slate-100">
+                                <i data-lucide="menu" class="h-5 w-5"></i>
+                            </button>
+                            <h1 class="text-xl font-bold text-slate-950 tracking-tight">${title}</h1>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs text-slate-600 font-bold hidden sm:inline-block bg-slate-200 px-3 py-1.5 rounded-lg border border-slate-300">Acesso Logado</span>
+                            <div class="h-10 w-10 rounded-xl bg-slate-900 flex items-center justify-center text-white font-bold border border-slate-800 shadow-md">
+                                ${state.currentUser.nome.charAt(0)}
+                            </div>
+                        </div>
+                    </div>
+                </header>
+            `;
+        }
+
+        function renderDashboard() {
+            const totalProdutos = DB.produtos.length;
+            const produtosDestinados = DB.produtos.filter(p => p.destino).length;
+            
+            return `
+                <div class="flex-1 flex flex-col h-full bg-slate-100 overflow-hidden">
+                    ${renderTopbar('Painel de Controle')}
+                    <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                            <div class="bg-white rounded-2xl shadow-sm p-6 border border-slate-300 hover:shadow-md transition-shadow">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Total de Produtos</p>
+                                        <p class="text-3xl font-extrabold text-slate-900 mt-1">${totalProdutos}</p>
+                                    </div>
+                                    <div class="p-3 bg-slate-100 rounded-xl text-slate-800 border border-slate-200">
+                                        <i data-lucide="package-search" class="w-6 h-6"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-2xl shadow-sm p-6 border border-slate-300 hover:shadow-md transition-shadow">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Produtos Destinados</p>
+                                        <p class="text-3xl font-extrabold text-slate-900 mt-1">${produtosDestinados}</p>
+                                    </div>
+                                    <div class="p-3 bg-slate-100 rounded-xl text-slate-800 border border-slate-200">
+                                        <i data-lucide="check-circle" class="w-6 h-6"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-2xl shadow-sm p-6 border border-slate-300 hover:shadow-md transition-shadow">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Associações Ativas</p>
+                                        <p class="text-3xl font-extrabold text-slate-900 mt-1">${DB.associacoes.length}</p>
+                                    </div>
+                                    <div class="p-3 bg-slate-100 rounded-xl text-slate-800 border border-slate-200">
+                                        <i data-lucide="building" class="w-6 h-6"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl shadow-sm border border-slate-300 p-6">
+                            <div class="flex items-center gap-3 mb-4">
+                                <i data-lucide="home" class="w-6 h-6 text-slate-800"></i>
+                                <h3 class="text-lg font-bold text-slate-950">Bem-vindo ao SGAP</h3>
+                            </div>
+                            <p class="text-sm text-slate-700 leading-relaxed">
+                                Você está logado como <strong class="text-slate-900">${state.currentUser.nome}</strong>. Seu nível de acesso é <strong class="text-slate-900">${getLevelBadge(state.currentUser.nivel)}</strong>. Utilize o menu de navegação à esquerda ou o topo responsivo para interagir com os módulos do sistema de gestão e aplicação de produtos apreendidos.
+                            </p>
+                        </div>
+                    </main>
+                </div>
+            `;
+        }
+
+        function renderUsuarios() {
+            if(state.currentUser.nivel < 3) return renderDashboard();
+            return `
+                <div class="flex-1 flex flex-col h-full bg-slate-100 overflow-hidden">
+                    ${renderTopbar('Controle de Usuários')}
+                    <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+                        <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
+                            <div>
+                                <h2 class="text-lg font-bold text-slate-900">Gerenciamento de Contas</h2>
+                                <p class="text-xs text-slate-600 mt-0.5">Cadastre, edite, bloqueie e remova contas de operadores e agentes.</p>
+                            </div>
+                            <button onclick="openModalUser()" class="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl shadow-md text-sm font-semibold flex items-center justify-center gap-2 transition-colors shrink-0">
+                                <i data-lucide="user-plus" class="w-4 h-4"></i> Novo Usuário
+                            </button>
+                        </div>
+                        <div class="bg-white shadow-sm rounded-2xl overflow-hidden border border-slate-300">
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-slate-300">
+                                    <thead class="bg-slate-100">
+                                        <tr>
+                                            <th class="px-6 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Usuário</th>
+                                            <th class="px-6 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Associação</th>
+                                            <th class="px-6 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Nível</th>
+                                            <th class="px-6 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Status</th>
+                                            <th class="px-6 py-3.5 text-right text-xs font-bold text-slate-700 uppercase tracking-wider">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-slate-200">
+                                        ${DB.users.map(u => `
+                                            <tr class="hover:bg-slate-50">
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <div class="text-sm font-bold text-slate-900">${u.nome}</div>
+                                                    <div class="text-xs text-slate-600 mt-0.5">${u.rg}</div>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <div class="text-sm text-slate-800">${u.associacao}</div>
+                                                    <div class="text-xs text-slate-500 mt-0.5">${u.local}</div>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap">${getLevelBadge(u.nivel)}</td>
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <span class="px-2.5 py-1 inline-flex text-xs leading-5 font-bold rounded-lg ${u.bloqueado ? 'bg-red-100 text-red-800 border border-red-300' : 'bg-emerald-100 text-emerald-800 border border-emerald-300'}">${u.bloqueado ? 'Bloqueado' : 'Ativo'}</span>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                    ${u.id !== state.currentUser.id ? `
+                                                        <div class="flex items-center justify-end gap-3">
+                                                            <button onclick="openModalUser(${u.id})" class="text-slate-600 hover:text-slate-900" title="Editar"><i data-lucide="edit-2" class="w-4 h-4"></i></button>
+                                                            <button onclick="deleteUser(${u.id})" class="text-red-600 hover:text-red-900" title="Excluir"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                                            <button onclick="toggleBlockUser(${u.id})" class="text-slate-600 hover:text-slate-900" title="${u.bloqueado ? 'Desbloquear' : 'Bloquear'}">
+                                                                <i data-lucide="${u.bloqueado ? 'unlock' : 'lock'}" class="w-4 h-4"></i>
+                                                            </button>
+                                                        </div>
+                                                    ` : '<span class="text-xs text-slate-500 italic font-bold">Sua Conta</span>'}
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </main>
+
+                    <!-- Modal Cadastro Usuário -->
+                    <div id="modalUser" class="hidden fixed inset-0 bg-slate-900/70 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+                        <div class="bg-white p-6 border border-slate-300 rounded-2xl shadow-2xl w-full max-w-2xl transform scale-100 transition-all">
+                            <div class="flex justify-between items-center mb-4 border-b border-slate-200 pb-3">
+                                <h3 id="modalUserTitle" class="text-lg font-bold text-slate-900">Cadastrar Novo Usuário</h3>
+                                <button onclick="document.getElementById('modalUser').classList.add('hidden')" class="text-slate-500 hover:text-slate-800"><i data-lucide="x"></i></button>
+                            </div>
+                            <form id="formUser" onsubmit="handleSaveUser(event)" class="space-y-4">
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Nome Completo</label>
+                                        <input type="text" id="nu-nome" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900 placeholder-slate-400" placeholder="Ex: Roberto Silva">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Documento (RG/CPF)</label>
+                                        <input type="text" id="nu-rg" required oninput="maskCPF(event)" maxlength="14" class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900 placeholder-slate-400" placeholder="Ex: 000.000.000-00">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Senha do Usuário</label>
+                                        <input type="password" id="nu-senha" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900 placeholder-slate-400" placeholder="Crie uma senha de acesso">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Nível de Acesso</label>
+                                        <select id="nu-nivel" class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900">
+                                            <option value="1">Baixo (Operador de campo)</option>
+                                            <option value="2">Médio (Agente destinação)</option>
+                                            <option value="3">Alto (Administrador completo)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Associação Pertencente</label>
+                                        <select id="nu-assoc" class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900">
+                                            <option value="Nenhuma">Nenhuma</option>
+                                            ${DB.associacoes.map(a => `<option value="${a.nome}">${a.nome}</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Local de Residência/Base</label>
+                                        <input type="text" id="nu-local" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900 placeholder-slate-400" placeholder="Cidade/UF">
+                                    </div>
+                                </div>
+                                <div class="mt-5 flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
+                                    <button type="button" onclick="document.getElementById('modalUser').classList.add('hidden')" class="bg-white border border-slate-300 rounded-xl shadow-sm py-2.5 px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 order-2 sm:order-1 transition-colors">Cancelar</button>
+                                    <button type="submit" class="bg-slate-900 border border-transparent rounded-xl shadow-md py-2.5 px-4 text-sm font-bold text-white hover:bg-slate-800 order-1 sm:order-2 transition-colors">Salvar Usuário</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderProdutos() {
+            if(state.currentUser.nivel < 2) return renderDashboard(); 
+            
+            return `
+                <div class="flex-1 flex flex-col h-full bg-slate-100 overflow-hidden">
+                    ${renderTopbar('Produtos Apreendidos')}
+                    <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+                        <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
+                            <div>
+                                <h2 class="text-lg font-bold text-slate-900">Catálogo Geral de Bens</h2>
+                                <p class="text-xs text-slate-600 mt-0.5">Veja, registre ou atribua destinações para mercadorias sob custódia estatal.</p>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-3 shrink-0">
+                                <button onclick="exportProdutosPDF()" class="bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 px-4 py-2.5 rounded-xl shadow-sm text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                                    <i data-lucide="file-down" class="w-4 h-4"></i> Exportar PDF
+                                </button>
+                                <button onclick="openModalProduto()" class="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl shadow-md text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                                    <i data-lucide="plus-circle" class="w-4 h-4"></i> Registrar Apreensão
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                            ${DB.produtos.map(p => `
+                                <div class="bg-white overflow-hidden shadow-sm rounded-2xl border ${p.destino ? (p.destino.recebido ? 'border-indigo-300 shadow-indigo-100' : 'border-emerald-300 shadow-emerald-100') : 'border-slate-300'} relative flex flex-col h-full transition-all duration-300">
+                                    ${!p.destino ? `
+                                    <div class="absolute top-4 right-4 flex items-center gap-2 z-10">
+                                        <button onclick="openModalProduto(${p.id})" class="text-slate-600 hover:text-slate-900 p-1.5 bg-white rounded-lg shadow-sm border border-slate-300" title="Editar"><i data-lucide="edit-2" class="w-4 h-4"></i></button>
+                                        <button onclick="deleteProduto(${p.id})" class="text-red-600 hover:text-red-800 p-1.5 bg-white rounded-lg shadow-sm border border-slate-300" title="Excluir"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                    </div>
+                                    ` : ''}
+                                    <div class="p-5 flex-1 flex flex-col">
+                                        <div class="flex items-center justify-between mb-3">
+                                            <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${p.destino ? (p.destino.recebido ? 'bg-indigo-100 text-indigo-800 border border-indigo-300' : 'bg-emerald-100 text-emerald-800 border border-emerald-300') : 'bg-slate-200 text-slate-800 border border-slate-300'}">
+                                                ${p.destino ? (p.destino.recebido ? '<i data-lucide="check" class="w-3.5 h-3.5 mr-1"></i> Recebido' : 'Destinado') : 'Em Depósito'}
+                                            </span>
+                                            <span class="text-xs font-bold text-slate-500 ${!p.destino ? 'mr-20' : ''}">ID: #${p.id}</span>
+                                        </div>
+                                        <h3 class="text-base font-bold text-slate-900 mb-2 truncate ${!p.destino ? 'pr-20' : ''}">${p.nome}</h3>
+                                        <div class="space-y-2 mt-2 flex-1">
+                                            <p class="text-xs text-slate-700 flex items-start gap-2 leading-relaxed"><i data-lucide="tag" class="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5"></i> <span><strong>Classe:</strong> ${p.classificacao} ${p.emLote ? `(Lote: ${p.quantidade} un)` : ''}</span></p>
+                                            <p class="text-xs text-slate-700 flex items-start gap-2 leading-relaxed"><i data-lucide="map-pin" class="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5"></i> <span><strong>Custódia:</strong> ${p.localizacao}</span></p>
+                                            <p class="text-xs text-slate-700 flex items-start gap-2 leading-relaxed"><i data-lucide="calendar" class="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5"></i> <span><strong>Apreendido:</strong> ${p.dataApreensao}</span></p>
+                                            <p class="text-xs text-slate-700 flex items-start gap-2 leading-relaxed"><i data-lucide="info" class="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5"></i> <span><strong>Motivo:</strong> ${p.motivo}</span></p>
+                                        </div>
+                                    </div>
+                                    <div class="bg-slate-50 p-4 border-t border-slate-200 mt-auto">
+                                         ${!p.destino ? `
+                                            <button onclick="openModalDestino(${p.id})" class="w-full flex justify-center items-center gap-2 py-2.5 px-4 border border-transparent rounded-xl shadow-md text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 transition-colors">
+                                                <i data-lucide="send" class="w-4 h-4"></i> Atribuir Destinação
+                                            </button>
+                                        ` : `
+                                            <button onclick="openViewDestinoModal(${p.id})" class="w-full flex justify-center items-center gap-2 py-2.5 px-4 border border-slate-300 rounded-xl shadow-sm text-sm font-bold text-slate-800 bg-white hover:bg-slate-100 transition-colors">
+                                                <i data-lucide="eye" class="w-4 h-4 text-slate-600"></i> Detalhes do Destino
+                                            </button>
+                                        `}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </main>
+
+                    <!-- Modal Cadastro Produto -->
+                    <div id="modalProduto" class="hidden fixed inset-0 bg-slate-900/70 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+                         <div class="bg-white p-6 border border-slate-300 rounded-2xl shadow-2xl w-full max-w-2xl transform scale-100 transition-all">
+                            <div class="flex justify-between items-center mb-4 border-b border-slate-200 pb-3">
+                                <h3 id="modalProdutoTitle" class="text-lg font-bold text-slate-900">Registrar Produto Apreendido</h3>
+                                <button onclick="document.getElementById('modalProduto').classList.add('hidden')" class="text-slate-500 hover:text-slate-800"><i data-lucide="x"></i></button>
+                            </div>
+                            <form id="formProduto" onsubmit="handleSaveProduto(event)" class="space-y-4">
+                                <div class="flex items-center justify-between bg-slate-100 p-3 rounded-xl border border-slate-300 mb-2 shadow-inner">
+                                    <span class="text-xs font-bold text-slate-700">Importação Automática de Dados</span>
+                                    <button type="button" onclick="customAlert('Simulando interconexão com base de dados governamental... Dados sincronizados com sucesso!', 'Sincronizador SGAP')" class="text-xs font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1">
+                                        <i data-lucide="database" class="w-4 h-4"></i> Sincronizar Base
+                                    </button>
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div class="sm:col-span-2">
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Nome/Descrição do Item</label>
+                                        <input type="text" id="np-nome" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900 placeholder-slate-400" placeholder="Ex: Lote de Celulares Samsung">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Classificação</label>
+                                        <select id="np-class" class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900">
+                                            <option>Eletrônico</option><option>Bebida</option><option>Veículo</option><option>Vestuário</option><option>Medicamento</option><option>Alimento</option><option>Outros</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Data de Apreensão</label>
+                                        <input type="date" id="np-data" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900">
+                                    </div>
+                                    <div class="sm:col-span-2">
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Localização Atual (Depósito)</label>
+                                        <input type="text" id="np-local" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900" placeholder="Ex: Galpão de Triagem Receita - SP">
+                                    </div>
+                                    <div class="sm:col-span-2">
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Motivo de Apreensão</label>
+                                        <input type="text" id="np-motivo" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900" placeholder="Ex: Contrabando / Falta de Nota Fiscal">
+                                    </div>
+                                    <div class="flex items-center mt-2">
+                                        <input type="checkbox" id="np-lote" onchange="document.getElementById('np-qtd-container').classList.toggle('hidden', !this.checked)" class="h-5 w-5 text-slate-800 focus:ring-slate-500 border-slate-300 rounded-lg">
+                                        <label class="ml-2 block text-sm font-bold text-slate-900 select-none">Registrar como Lote</label>
+                                    </div>
+                                    <div id="np-qtd-container" class="hidden">
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Quantidade</label>
+                                        <input type="number" id="np-qtd" class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900" placeholder="Ex: 150">
+                                    </div>
+                                </div>
+                                <div class="mt-5 flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
+                                    <button type="button" onclick="document.getElementById('modalProduto').classList.add('hidden')" class="bg-white border border-slate-300 rounded-xl shadow-sm py-2.5 px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 order-2 sm:order-1 transition-colors">Cancelar</button>
+                                    <button type="submit" class="bg-slate-900 border border-transparent rounded-xl shadow-md py-2.5 px-4 text-sm font-bold text-white hover:bg-slate-800 order-1 sm:order-2 transition-colors">Salvar Registro</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    
+<!-- Modal Detalhes do Destino -->
+                    <div id="modalViewDestino" class="hidden fixed inset-0 bg-slate-900/70 backdrop-blur-sm overflow-y-auto h-full w-full z-[60] flex items-center justify-center p-4">
+                        <div class="bg-white p-0 border border-slate-300 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden transform scale-100 transition-all">
+                            <div class="bg-slate-900 p-5 flex justify-between items-center text-white">
+                                <h3 class="font-bold flex items-center gap-2 text-sm sm:text-base"><i data-lucide="info" class="w-5 h-5 text-slate-300"></i> Histórico de Destinação</h3>
+                                <button onclick="document.getElementById('modalViewDestino').classList.add('hidden')" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+                            </div>
+                            <div class="p-6 space-y-4 bg-white" id="viewDestinoContent"></div>
+                            <div class="bg-slate-100 p-5 flex justify-end border-t border-slate-200">
+                                <button onclick="document.getElementById('modalViewDestino').classList.add('hidden')" class="px-5 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-800 hover:bg-slate-50 shadow-sm transition-colors">Fechar Painel</button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Modal Destinação Form -->
+                    <div id="modalDestino" class="hidden fixed inset-0 bg-slate-900/70 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+                         <div class="bg-white p-6 border border-slate-300 rounded-2xl shadow-2xl w-full max-w-2xl transform scale-100 transition-all">
+                            <div class="flex justify-between items-center mb-4 border-b border-slate-200 pb-3">
+                                <h3 class="text-lg font-bold text-slate-900">Atribuir Destinação de Bem</h3>
+                                <button onclick="document.getElementById('modalDestino').classList.add('hidden')" class="text-slate-500 hover:text-slate-800"><i data-lucide="x"></i></button>
+                            </div>
+                            <form id="formDestino" onsubmit="handleSaveDestino(event)" class="space-y-4">
+                                <input type="hidden" id="nd-prodId">
+                                <div class="bg-slate-100 p-4 rounded-xl text-sm mb-4 border border-slate-300 shadow-inner" id="nd-prodInfo"></div>
+                                
+                                <div>
+                                    <label class="block text-sm font-bold text-slate-800 mb-1">Função da Destinação (Propósito)</label>
+                                    <input type="text" id="nd-funcao" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900 placeholder-slate-400" placeholder="Ex: Transformação em computadores de escola pública">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-bold text-slate-800 mb-1">Local de Destino (Localização a ser enviado)</label>
+                                    <input type="text" id="nd-local" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900 placeholder-slate-400" placeholder="Ex: Escola Estadual Maria da Luz - SP">
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Atribuir ao Usuário/Responsável</label>
+                                        <select id="nd-user" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900">
+                                            <option value="">Selecione...</option>
+                                            ${DB.users.filter(u => !u.bloqueado).map(u => `<option value="${u.id}">${u.nome} (${u.associacao})</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Período de Checagem/Auditoria</label>
+                                        <select id="nd-periodo" class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900">
+                                            <option>Semanal</option><option>Mensal</option><option>Semestral</option><option>Anual</option><option>Único (Consumo/Descarte)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="mt-5 flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
+                                    <button type="button" onclick="document.getElementById('modalDestino').classList.add('hidden')" class="bg-white border border-slate-300 rounded-xl shadow-sm py-2.5 px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 order-2 sm:order-1 transition-colors">Cancelar</button>
+                                    <button type="submit" class="bg-slate-900 border border-transparent rounded-xl shadow-md py-2.5 px-4 text-sm font-bold text-white hover:bg-slate-800 order-1 sm:order-2 transition-colors">Confirmar Destinação</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAssociacoes() {
+            if(state.currentUser.nivel < 1) return renderDashboard();
+            const canEdit = state.currentUser.nivel >= 2;
+
+            return `
+                <div class="flex-1 flex flex-col h-full bg-slate-100 overflow-hidden">
+                    ${renderTopbar('Associações / Órgãos')}
+                    <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+                        
+                        <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
+                            <div>
+                                <h2 class="text-lg font-bold text-slate-900">Diretório de Instituições</h2>
+                                <p class="text-xs text-slate-600 mt-0.5">Órgãos governamentais e associações privadas parceiras credenciadas no SGAP.</p>
+                            </div>
+                            ${canEdit ? `
+                            <button onclick="openModalAssociacao()" class="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl shadow-md text-sm font-bold flex items-center justify-center gap-2 transition-colors shrink-0">
+                                <i data-lucide="building-2" class="w-4 h-4"></i> Cadastrar Associação
+                            </button>
+                            ` : ''}
+                        </div>
+
+                        <div class="bg-white shadow-sm rounded-2xl overflow-hidden border border-slate-300">
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-slate-300">
+                                    <thead class="bg-slate-100">
+                                        <tr>
+                                            <th scope="col" class="px-6 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Nome da Instituição</th>
+                                            <th scope="col" class="px-6 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Líder / Responsável</th>
+                                            <th scope="col" class="px-6 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Ramo de Atuação</th>
+                                            <th scope="col" class="px-6 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Localidade de Operações</th>
+                                            <th scope="col" class="px-6 py-3.5 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Origem</th>
+                                            ${canEdit ? '<th scope="col" class="relative px-6 py-3.5 text-right"><span class="sr-only">Ações</span></th>' : ''}
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-slate-200">
+                                        ${DB.associacoes.map(a => `
+                                            <tr class="hover:bg-slate-50">
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <div class="flex items-center">
+                                                        <div class="flex-shrink-0 h-10 w-10 bg-slate-200 rounded-xl flex items-center justify-center text-slate-700 border border-slate-300">
+                                                            <i data-lucide="building" class="w-5 h-5"></i>
+                                                        </div>
+                                                        <div class="ml-3">
+                                                            <div class="text-sm font-bold text-slate-900">${a.nome}</div>
+                                                            <div class="text-[11px] text-slate-600 font-bold mt-0.5">${a.lucrativo ? 'Fins Lucrativos' : 'Sem Fins Lucrativos'}</div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-800">${a.lider}</td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-700">${a.ramo}</td>
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <div class="text-sm text-slate-900 font-bold">${a.localOperacao}</div>
+                                                    <div class="text-xs text-slate-600 mt-0.5">Fundação: ${a.localFundacao}</div>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    ${a.preCadastrado 
+                                                        ? `<span class="px-2.5 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-slate-200 text-slate-800 border border-slate-300">Nativo</span>`
+                                                        : `<span class="px-2.5 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300">Manual</span>`
+                                                    }
+                                                </td>
+                                                ${canEdit ? `
+                                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                    ${!a.preCadastrado ? `
+                                                        <button onclick="openModalAssociacao(${a.id})" class="text-slate-600 hover:text-slate-900 mr-3" title="Editar"><i data-lucide="edit-2" class="w-4 h-4 inline"></i></button>
+                                                        <button onclick="deleteAssociacao(${a.id})" class="text-red-600 hover:text-red-900" title="Excluir"><i data-lucide="trash-2" class="w-4 h-4 inline"></i></button>
+                                                    ` : '<span class="text-slate-500 text-xs italic font-bold">Protegido</span>'}
+                                                </td>
+                                                ` : ''}
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </main>
+
+                    <!-- Modal Cadastro Associação -->
+                    <div id="modalAssociacao" class="hidden fixed inset-0 bg-slate-900/70 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+                         <div class="bg-white p-6 border border-slate-300 rounded-2xl shadow-2xl w-full max-w-2xl transform scale-100 transition-all">
+                            <div class="flex justify-between items-center mb-4 border-b border-slate-200 pb-3">
+                                <h3 id="modalAssociacaoTitle" class="text-lg font-bold text-slate-900">Cadastrar Nova Associação</h3>
+                                <button onclick="document.getElementById('modalAssociacao').classList.add('hidden')" class="text-slate-500 hover:text-slate-800"><i data-lucide="x"></i></button>
+                            </div>
+                            <form id="formAssociacao" onsubmit="handleSaveAssociacao(event)" class="space-y-4">
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div class="sm:col-span-2">
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Nome da Associação/Órgão</label>
+                                        <input type="text" id="na-nome" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900 placeholder-slate-400" placeholder="Ex: Organização Social Caminho da Esperança">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Ramo de Atuação</label>
+                                        <input type="text" id="na-ramo" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900 placeholder-slate-400" placeholder="Ex: Tecnológico / Educacional">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Dono / Líder Responsável</label>
+                                        <input type="text" id="na-lider" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Local de Operações (Principal)</label>
+                                        <input type="text" id="na-operacao" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900" placeholder="Ex: Salvador - BA">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Local de Fundação</label>
+                                        <input type="text" id="na-fundacao" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900">
+                                    </div>
+                                    <div class="sm:col-span-2 flex items-center mt-2">
+                                        <input type="checkbox" id="na-lucrativo" class="h-5 w-5 text-slate-800 focus:ring-slate-500 border-slate-300 rounded-lg">
+                                        <label class="ml-2 block text-sm font-bold text-slate-900 select-none">Possui fins lucrativos</label>
+                                    </div>
+                                </div>
+                                <div class="mt-5 flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
+                                    <button type="button" onclick="document.getElementById('modalAssociacao').classList.add('hidden')" class="bg-white border border-slate-300 rounded-xl shadow-sm py-2.5 px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 order-2 sm:order-1 transition-colors">Cancelar</button>
+                                    <button type="submit" class="bg-slate-900 border border-transparent rounded-xl shadow-md py-2.5 px-4 text-sm font-bold text-white hover:bg-slate-800 order-1 sm:order-2 transition-colors">Salvar Registro</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderDestinacao() {
+            if(state.currentUser.nivel < 1) return renderDashboard();
+            const canEdit = state.currentUser.nivel >= 2;
+            const produtosDestinados = DB.produtos.filter(p => p.destino);
+
+            return `
+                <div class="flex-1 flex flex-col h-full bg-slate-100 overflow-hidden">
+                    ${renderTopbar('Destinações Ativas (Atribuições)')}
+                    <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+                        <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
+                            <div>
+                                <h2 class="text-lg font-bold text-slate-900">Monitoramento de Bens Aplicados</h2>
+                                <p class="text-xs text-slate-600 mt-0.5">Acompanhe a aplicação social, transformação ou descarte dos materiais destinados.</p>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-3 shrink-0">
+                                <div class="bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-2 rounded-xl border border-emerald-300">
+                                    Total: ${produtosDestinados.length} Ativos
+                                </div>
+                                <button onclick="exportDestinacoesPDF()" class="bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 px-4 py-2.5 rounded-xl shadow-sm text-sm font-bold flex items-center gap-2 transition-colors">
+                                    <i data-lucide="file-down" class="w-4 h-4"></i> Exportar PDF
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                            ${produtosDestinados.length > 0 ? produtosDestinados.map(p => `
+                                <div class="bg-white rounded-2xl shadow-sm border ${p.destino.recebido ? 'border-indigo-300 shadow-indigo-100' : 'border-slate-300'} overflow-hidden hover:shadow-md transition-all flex flex-col h-full">
+                                    <div class="p-5 flex-1">
+                                        <div class="flex justify-between items-start gap-3 mb-3">
+                                            <h3 class="text-base font-bold text-slate-900 flex-1 leading-snug">${p.nome}</h3>
+                                            ${p.destino.recebido 
+                                                ? `<span class="bg-indigo-100 text-indigo-800 text-xs font-bold px-2.5 py-1 rounded-lg whitespace-nowrap flex items-center gap-1 border border-indigo-300"><i data-lucide="check" class="w-3.5 h-3.5"></i> Recebido</span>` 
+                                                : `<span class="bg-slate-200 text-slate-800 text-xs font-bold px-2.5 py-1 rounded-lg whitespace-nowrap border border-slate-300">Em trânsito</span>`
+                                            }
+                                        </div>
+                                        
+                                        <div class="bg-slate-100 p-3 rounded-xl mb-4 border border-slate-200 shadow-inner">
+                                            <p class="text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">Finalidade Aplicada:</p>
+                                            <p class="text-sm text-slate-800 italic leading-relaxed font-medium">"${p.destino.funcao}"</p>
+                                        </div>
+
+                                        <div class="space-y-2.5 text-xs">
+                                            <div class="flex items-center text-slate-700">
+                                                <i data-lucide="map-pin" class="w-4 h-4 mr-2 text-slate-500"></i>
+                                                <span class="font-bold mr-1">Local:</span> ${p.destino.local}
+                                            </div>
+                                            <div class="flex items-center text-slate-700">
+                                                <i data-lucide="user-check" class="w-4 h-4 mr-2 text-slate-500"></i>
+                                                <span class="font-bold mr-1">Custodiante:</span> ${DB.users.find(u => u.id === p.destino.usuarioId)?.nome || 'Usuário Não Localizado'}
+                                            </div>
+                                            <div class="flex items-center text-slate-700">
+                                                <i data-lucide="building" class="w-4 h-4 mr-2 text-slate-500"></i>
+                                                <span class="font-bold mr-1">Associação:</span> ${p.destino.associacao}
+                                            </div>
+                                            <div class="flex items-center text-slate-700">
+                                                <i data-lucide="calendar" class="w-4 h-4 mr-2 text-slate-500"></i>
+                                                <span class="font-bold mr-1">Ciclo Auditoria:</span> ${p.destino.periodoChecagem}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 flex justify-end gap-2 mt-auto">
+                                        ${canEdit ? `
+                                            ${!p.destino.recebido ? `
+                                                <button onclick="marcarRecebido(${p.id})" class="bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 mr-auto transition-colors">
+                                                    <i data-lucide="thumbs-up" class="w-4 h-4"></i> Recebido 👍
+                                                </button>
+                                                <button onclick="openModalDestino(${p.id}, true)" class="text-slate-600 hover:text-slate-900 text-xs font-bold flex items-center gap-1 p-2">
+                                                    <i data-lucide="edit-2" class="w-4 h-4"></i> Editar
+                                                </button>
+                                                <button onclick="deleteDestino(${p.id})" class="text-red-600 hover:text-red-900 text-xs font-bold flex items-center gap-1 p-2">
+                                                    <i data-lucide="trash-2" class="w-4 h-4"></i> Revogar
+                                                </button>
+                                            ` : `
+                                                <button onclick="openViewDestinoModal(${p.id})" class="w-full text-center text-slate-600 hover:text-slate-900 text-xs font-bold flex items-center justify-center gap-1 p-2">
+                                                    <i data-lucide="eye" class="w-4 h-4"></i> Detalhes do Recebimento (Editores Bloqueados)
+                                                </button>
+                                            `}
+                                        ` : `
+                                            <button onclick="openViewDestinoModal(${p.id})" class="w-full text-center text-slate-600 hover:text-slate-900 text-xs font-bold flex items-center justify-center gap-1 p-2">
+                                                <i data-lucide="eye" class="w-4 h-4"></i> Ver Detalhes
+                                            </button>
+                                        `}
+                                    </div>
+                                </div>
+                            `).join('') : `
+                                <div class="col-span-full text-center py-16 bg-white rounded-2xl border border-dashed border-slate-400 shadow-sm">
+                                    <i data-lucide="package-open" class="mx-auto h-12 w-12 text-slate-400 mb-3"></i>
+                                    <h3 class="text-sm font-bold text-slate-900">Sem Destinações Cadastradas</h3>
+                                    <p class="mt-1 text-xs text-slate-600">Bens com status de depósito podem ser destinados na aba de "Produtos Apreendidos".</p>
+                                </div>
+                            `}
+                        </div>
+                    </main>
+
+                    <!-- Modal Detalhes do Destino -->
+                    <div id="modalViewDestino" class="hidden fixed inset-0 bg-slate-900/70 backdrop-blur-sm overflow-y-auto h-full w-full z-[60] flex items-center justify-center p-4">
+                        <div class="bg-white p-0 border border-slate-300 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden transform scale-100 transition-all">
+                            <div class="bg-slate-900 p-5 flex justify-between items-center text-white">
+                                <h3 class="font-bold flex items-center gap-2 text-sm sm:text-base"><i data-lucide="info" class="w-5 h-5 text-slate-300"></i> Histórico de Destinação</h3>
+                                <button onclick="document.getElementById('modalViewDestino').classList.add('hidden')" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+                            </div>
+                            <div class="p-6 space-y-4 bg-white" id="viewDestinoContent"></div>
+                            <div class="bg-slate-100 p-5 flex justify-end border-t border-slate-200">
+                                <button onclick="document.getElementById('modalViewDestino').classList.add('hidden')" class="px-5 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-800 hover:bg-slate-50 shadow-sm transition-colors">Fechar Painel</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    ${canEdit ? `
+                    <div id="modalDestino" class="hidden fixed inset-0 bg-slate-900/70 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+                         <div class="bg-white p-6 border border-slate-300 rounded-2xl shadow-2xl w-full max-w-2xl transform scale-100 transition-all">
+                            <div class="flex justify-between items-center mb-4 border-b border-slate-200 pb-3">
+                                <h3 class="text-lg font-bold text-slate-900">Editar Destinação de Bem</h3>
+                                <button type="button" onclick="document.getElementById('modalDestino').classList.add('hidden')" class="text-slate-500 hover:text-slate-800"><i data-lucide="x"></i></button>
+                            </div>
+                            <form id="formDestino" onsubmit="handleSaveDestino(event)" class="space-y-4">
+                                <input type="hidden" id="nd-prodId">
+                                <div class="bg-slate-100 p-4 rounded-xl text-sm mb-4 border border-slate-300 shadow-inner" id="nd-prodInfo"></div>
+                                
+                                <div>
+                                    <label class="block text-sm font-bold text-slate-800 mb-1">Função da Destinação (Propósito)</label>
+                                    <input type="text" id="nd-funcao" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900 placeholder-slate-400">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-bold text-slate-800 mb-1">Local de Destino</label>
+                                    <input type="text" id="nd-local" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900 placeholder-slate-400">
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Atribuir ao Usuário</label>
+                                        <select id="nd-user" required class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900">
+                                            <option value="">Selecione...</option>
+                                            ${DB.users.filter(u => !u.bloqueado).map(u => `<option value="${u.id}">${u.nome} (${u.associacao})</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-slate-800 mb-1">Período de Checagem</label>
+                                        <select id="nd-periodo" class="block w-full border border-slate-300 rounded-xl shadow-sm py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm text-slate-900">
+                                            <option>Semanal</option><option>Mensal</option><option>Semestral</option><option>Anual</option><option>Único (Consumo/Descarte)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="mt-5 flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-200">
+                                    <button type="button" onclick="document.getElementById('modalDestino').classList.add('hidden')" class="bg-white border border-slate-300 rounded-xl shadow-sm py-2.5 px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 order-2 sm:order-1 transition-colors">Cancelar</button>
+                                    <button type="submit" class="bg-slate-900 border border-transparent rounded-xl shadow-md py-2.5 px-4 text-sm font-bold text-white hover:bg-slate-800 order-1 sm:order-2 transition-colors">Confirmar Edição</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        function renderAuditoria() {
+            if(state.currentUser.nivel < 3) return renderDashboard();
+
+            return `
+                <div class="flex-1 flex flex-col h-full bg-slate-100 overflow-hidden">
+                    ${renderTopbar('Auditoria de Acesso e Operações')}
+                    <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+                        <div class="bg-white shadow-sm rounded-2xl overflow-hidden border border-slate-300">
+                            <div class="px-6 py-5 border-b border-slate-200 bg-slate-100 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                                <div>
+                                    <h3 class="text-base font-bold text-slate-900">Registro de Atividades</h3>
+                                    <p class="text-xs text-slate-600 mt-0.5">Listagem unificada de ações de usuários auditadas de forma automática.</p>
+                                </div>
+                                <button onclick="exportLogsPDF()" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 px-4 py-2.5 rounded-xl shadow-sm text-sm font-bold flex items-center justify-center gap-2 transition-colors shrink-0">
+                                    <i data-lucide="file-down" class="w-4 h-4"></i> Exportar Logs PDF
+                                </button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-slate-300">
+                                    <thead class="bg-slate-50">
+                                        <tr>
+                                            <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Data/Hora</th>
+                                            <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Usuário</th>
+                                            <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Módulo</th>
+                                            <th scope="col" class="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Ação / Detalhes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-slate-200">
+                                        ${DB.logs.map(log => `
+                                            <tr class="hover:bg-slate-50 transition-colors">
+                                                <td class="px-6 py-4 whitespace-nowrap text-xs text-slate-600 font-mono font-bold">${log.dataHora}</td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-900">${log.usuarioNome}</td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-xs">
+                                                    <span class="px-2.5 py-1 inline-flex text-[10px] leading-5 font-bold rounded-lg bg-slate-200 text-slate-800 border border-slate-300">${log.tipo}</span>
+                                                </td>
+                                                <td class="px-6 py-4 text-xs font-medium text-slate-700 leading-relaxed">${log.acao}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            `;
+        }
+
+        function openViewDestinoModal(id) {
+            const p = DB.produtos.find(x => x.id === id);
+            if(!p || !p.destino) return;
+            
+            const resp = DB.users.find(u => u.id === p.destino.usuarioId);
+            
+            const content = `
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="sm:col-span-2 bg-slate-100 p-4 rounded-xl border border-slate-200 shadow-inner">
+                        <p class="text-[10px] text-slate-500 uppercase font-extrabold tracking-wider mb-1">Produto</p>
+                        <p class="text-sm text-slate-900 font-bold">${p.nome}</p>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <p class="text-[10px] text-slate-500 uppercase font-extrabold tracking-wider mb-1">Finalidade</p>
+                        <p class="text-xs text-slate-800 font-bold leading-relaxed">${p.destino.funcao}</p>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <p class="text-[10px] text-slate-500 uppercase font-extrabold tracking-wider mb-1">Local Enviado</p>
+                        <p class="text-xs text-slate-800 font-bold">${p.destino.local}</p>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <p class="text-[10px] text-slate-500 uppercase font-extrabold tracking-wider mb-1">Responsável</p>
+                        <p class="text-xs text-slate-800 font-bold">${resp ? resp.nome : 'N/A'}</p>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <p class="text-[10px] text-slate-500 uppercase font-extrabold tracking-wider mb-1">Associação</p>
+                        <p class="text-xs text-slate-800 font-bold">${p.destino.associacao}</p>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <p class="text-[10px] text-slate-500 uppercase font-extrabold tracking-wider mb-1">Ciclo Auditoria</p>
+                        <p class="text-xs text-slate-800 font-bold">${p.destino.periodoChecagem}</p>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <p class="text-[10px] text-slate-500 uppercase font-extrabold tracking-wider mb-1">Atribuído em</p>
+                        <p class="text-xs text-slate-800 font-bold">${p.destino.dataAtribuicao}</p>
+                    </div>
+                    ${p.destino.recebido ? `
+                    <div class="sm:col-span-2 bg-indigo-50 border border-indigo-300 p-4 rounded-xl flex items-center gap-3 text-indigo-900 mt-2 shadow-sm">
+                        <i data-lucide="check-circle-2" class="w-6 h-6 flex-shrink-0 text-indigo-700"></i>
+                        <span class="text-xs font-bold leading-relaxed">Este produto foi devidamente recebido pela instituição correspondente. Ações de edição ou revogação estão bloqueadas.</span>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            document.getElementById('viewDestinoContent').innerHTML = content;
+            document.getElementById('modalViewDestino').classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        // --- Restante dos métodos mantidos idênticos, referenciando as novas lógicas ---
+        
+        function handleLogin(e) {
+            e.preventDefault();
+            const doc = document.getElementById('loginDoc').value;
+            const senha = document.getElementById('loginSenha').value;
+            const btn = document.getElementById('btn-login');
+            
+            btn.innerHTML = '<div class="loader mx-auto"></div>';
+            btn.disabled = true;
+
+            setTimeout(() => { 
+                const user = DB.users.find(u => u.rg === doc && u.senha === senha);
+                if (user) {
+                    if (user.bloqueado) {
+                        customAlert("ERRO: Usuário bloqueado no sistema. Contate a administração.", "Acesso Recusado");
+                        btn.innerHTML = 'Acessar Sistema';
+                        btn.disabled = false;
+                        return;
+                    }
+                    state.currentUser = user;
+                    logActivity(`Login efetuado no sistema`, 'Acesso');
+                    navigate('dashboard');
+                    showToast('Autenticação de 2 fatores validada!');
+                } else {
+                    customAlert("Documento ou senha incorretos.", "Erro ao Autenticar");
+                    btn.innerHTML = 'Acessar Sistema';
+                    btn.disabled = false;
+                }
+            }, 800);
+        }
+
+        function handleLogout() {
+            logActivity(`Logout efetuado do sistema`, 'Acesso');
+            state.currentUser = null;
+            navigate('login');
+        }
+
+        function toggleBlockUser(id) {
+            const user = DB.users.find(u => u.id === id);
+            if(user) {
+                user.bloqueado = !user.bloqueado;
+                logActivity(`${user.bloqueado ? 'Bloqueou' : 'Desbloqueou'} o usuário ID ${id} (${user.nome})`, 'Bloqueio');
+                showToast(`Status do usuário alterado com sucesso.`);
+                render(); 
+            }
+        }
+
+        function openModalUser(id = null) {
+            state.editingId = id;
+            document.getElementById('formUser').reset();
+            const title = document.getElementById('modalUserTitle');
+            if (id) {
+                const u = DB.users.find(x => x.id === id);
+                title.innerText = "Editar Usuário";
+                document.getElementById('nu-nome').value = u.nome;
+                document.getElementById('nu-rg').value = u.rg;
+                document.getElementById('nu-senha').value = u.senha;
+                document.getElementById('nu-nivel').value = u.nivel;
+                document.getElementById('nu-assoc').value = u.associacao;
+                document.getElementById('nu-local').value = u.local;
+            } else {
+                title.innerText = "Cadastrar Novo Usuário";
+            }
+            document.getElementById('modalUser').classList.remove('hidden');
+        }
+
+        async function deleteUser(id) {
+            if(id === state.currentUser.id) return showToast("Ação inválida: você está logado nesta conta.", "error");
+            
+            const confirmed = await customConfirm("Tem certeza que deseja remover este usuário permanentemente?", "Excluir Usuário", true);
+            if(confirmed) {
+                DB.users = DB.users.filter(u => u.id !== id);
+                logActivity(`Removeu o usuário ID ${id}`, 'Exclusão');
+                showToast('Usuário removido com sucesso.');
+                render();
+            }
+        }
+
+        function handleSaveUser(e) {
+            e.preventDefault();
+            const nome = document.getElementById('nu-nome').value;
+            const nivel = parseInt(document.getElementById('nu-nivel').value);
+            const senha = document.getElementById('nu-senha').value;
+            
+            if (state.editingId) {
+                const u = DB.users.find(x => x.id === state.editingId);
+                if(u) {
+                    u.nome = nome;
+                    u.rg = document.getElementById('nu-rg').value;
+                    u.senha = senha;
+                    u.nivel = nivel;
+                    u.associacao = document.getElementById('nu-assoc').value;
+                    u.local = document.getElementById('nu-local').value;
+                    logActivity(`Editou usuário ID ${u.id}: ${nome}`, 'Edição');
+                    showToast('Usuário atualizado com sucesso.');
+                }
+            } else {
+                DB.users.push({
+                    id: DB.users.length > 0 ? Math.max(...DB.users.map(u=>u.id)) + 1 : 1,
+                    nome: nome,
+                    rg: document.getElementById('nu-rg').value,
+                    senha: senha,
+                    nivel: nivel,
+                    bloqueado: false,
+                    foto: "",
+                    associacao: document.getElementById('nu-assoc').value,
+                    local: document.getElementById('nu-local').value,
+                    criacao: new Date().toISOString().split('T')[0]
+                });
+                logActivity(`Cadastrou novo usuário: ${nome} (Nível ${nivel})`, 'Cadastro');
+                showToast('Usuário cadastrado com sucesso.');
+            }
+            document.getElementById('modalUser').classList.add('hidden');
+            render();
+        }
+
+        function openModalProduto(id = null) {
+            state.editingId = id;
+            document.getElementById('formProduto').reset();
+            const title = document.getElementById('modalProdutoTitle');
+            if (id) {
+                const p = DB.produtos.find(x => x.id === id);
+                title.innerText = "Editar Produto Apreendido";
+                document.getElementById('np-nome').value = p.nome;
+                document.getElementById('np-class').value = p.classificacao;
+                document.getElementById('np-data').value = p.dataApreensao;
+                document.getElementById('np-local').value = p.localizacao;
+                document.getElementById('np-motivo').value = p.motivo;
+                document.getElementById('np-lote').checked = p.emLote;
+                document.getElementById('np-qtd-container').classList.toggle('hidden', !p.emLote);
+                document.getElementById('np-qtd').value = p.quantidade;
+            } else {
+                title.innerText = "Registrar Produto Apreendido";
+                document.getElementById('np-qtd-container').classList.add('hidden');
+            }
+            document.getElementById('modalProduto').classList.remove('hidden');
+        }
+
+        async function deleteProduto(id) {
+            const confirmed = await customConfirm("Tem certeza que deseja remover este produto permanentemente?", "Excluir Produto", true);
+            if(confirmed) {
+                DB.produtos = DB.produtos.filter(p => p.id !== id);
+                logActivity(`Removeu o produto ID ${id}`, 'Exclusão Produto');
+                showToast('Produto removido com sucesso.');
+                render();
+            }
+        }
+
+        function handleSaveProduto(e) {
+            e.preventDefault();
+            const isLote = document.getElementById('np-lote').checked;
+            const nome = document.getElementById('np-nome').value;
+            if (state.editingId) {
+                const p = DB.produtos.find(x => x.id === state.editingId);
+                if(p) {
+                    p.nome = nome;
+                    p.classificacao = document.getElementById('np-class').value;
+                    p.localizacao = document.getElementById('np-local').value;
+                    p.dataApreensao = document.getElementById('np-data').value;
+                    p.motivo = document.getElementById('np-motivo').value;
+                    p.emLote = isLote;
+                    p.quantidade = isLote ? document.getElementById('np-qtd').value : 1;
+                    logActivity(`Editou produto ID ${p.id}: ${nome}`, 'Edição Produto');
+                    showToast('Produto atualizado com sucesso.');
+                }
+            } else {
+                DB.produtos.push({
+                    id: Math.floor(Math.random() * 1000) + 200,
+                    nome: nome,
+                    classificacao: document.getElementById('np-class').value,
+                    localizacao: document.getElementById('np-local').value,
+                    dataApreensao: document.getElementById('np-data').value,
+                    motivo: document.getElementById('np-motivo').value,
+                    emLote: isLote,
+                    quantidade: isLote ? document.getElementById('np-qtd').value : 1,
+                    destino: null
+                });
+                logActivity(`Registrou apreensão de produto: ${nome}`, 'Cadastro Produto');
+                showToast('Produto registrado com sucesso.');
+            }
+            document.getElementById('modalProduto').classList.add('hidden');
+            render();
+        }
+
+        function openModalDestino(prodId, isEdit = false) {
+            const p = DB.produtos.find(x => x.id === prodId);
+            if(!p) return;
+            state.editingId = isEdit ? prodId : null;
+            document.getElementById('formDestino').reset();
+            document.getElementById('nd-prodId').value = p.id;
+            document.getElementById('nd-prodInfo').innerHTML = `<strong>Produto:</strong> ${p.nome} (ID: ${p.id})`;
+            
+            if (isEdit && p.destino) {
+                document.getElementById('nd-funcao').value = p.destino.funcao;
+                document.getElementById('nd-local').value = p.destino.local;
+                if(document.querySelector(`#nd-user option[value="${p.destino.usuarioId}"]`)){
+                    document.getElementById('nd-user').value = p.destino.usuarioId;
+                }
+                document.getElementById('nd-periodo').value = p.destino.periodoChecagem;
+            }
+            document.getElementById('modalDestino').classList.remove('hidden');
+        }
+
+        async function deleteDestino(prodId) {
+            const confirmed = await customConfirm("Tem certeza que deseja revogar a destinação deste produto? Ele retornará ao status 'Em Depósito'.", "Revogar Destinação", true);
+            if(confirmed) {
+                const p = DB.produtos.find(x => x.id === prodId);
+                if(p) {
+                    p.destino = null;
+                    logActivity(`Revogou a destinação do produto ID ${prodId}`, 'Revogação Destino');
+                    showToast('Destinação revogada com sucesso.');
+                    render();
+                }
+            }
+        }
+
+        async function handleSaveDestino(e) {
+            e.preventDefault();
+            const confirmed = await customConfirm("Tem certeza que deseja confirmar os dados desta destinação?", "Confirmar Destinação");
+            if(!confirmed) return;
+
+            const prodId = parseInt(document.getElementById('nd-prodId').value);
+            const p = DB.produtos.find(x => x.id === prodId);
+            const userId = parseInt(document.getElementById('nd-user').value);
+            const user = DB.users.find(u => u.id === userId);
+            
+            if(p && user) {
+                const isEdit = !!state.editingId;
+                p.destino = {
+                    local: document.getElementById('nd-local').value,
+                    funcao: document.getElementById('nd-funcao').value,
+                    usuarioId: user.id,
+                    associacao: user.associacao,
+                    periodoChecagem: document.getElementById('nd-periodo').value,
+                    dataAtribuicao: isEdit ? p.destino.dataAtribuicao : new Date().toLocaleDateString('pt-BR'),
+                    recebido: false 
+                };
+                logActivity(`${isEdit ? 'Editou' : 'Atribuiu'} destino ao produto ID ${p.id}`, 'Destinação');
+                showToast(`Destinação ${isEdit ? 'atualizada' : 'atribuída'} com sucesso.`);
+                document.getElementById('modalDestino').classList.add('hidden');
+                render();
+            }
+        }
+
+        async function marcarRecebido(prodId) {
+            const confirmed = await customConfirm("Marcar como RECEBIDO? \n\nEsta ação finaliza o processo de trânsito. A edição e revogação do destino serão desativadas permanentemente para segurança institucional.", "Confirmar Recebimento");
+            if(confirmed) {
+                const p = DB.produtos.find(x => x.id === prodId);
+                if(p && p.destino) {
+                    p.destino.recebido = true;
+                    logActivity(`Confirmou recebimento do produto ID ${p.id}`, 'Atualização Status');
+                    showToast('Produto recebido com sucesso!');
+                    render();
+                }
+            }
+        }
+
+        function openModalAssociacao(id = null) {
+            state.editingId = id;
+            document.getElementById('formAssociacao').reset();
+            const title = document.getElementById('modalAssociacaoTitle');
+            if (id) {
+                const a = DB.associacoes.find(x => x.id === id);
+                title.innerText = "Editar Associação";
+                document.getElementById('na-nome').value = a.nome;
+                document.getElementById('na-ramo').value = a.ramo;
+                document.getElementById('na-lider').value = a.lider;
+                document.getElementById('na-operacao').value = a.localOperacao;
+                document.getElementById('na-fundacao').value = a.localFundacao;
+                document.getElementById('na-lucrativo').checked = a.lucrativo;
+            } else {
+                title.innerText = "Cadastrar Nova Associação";
+            }
+            document.getElementById('modalAssociacao').classList.remove('hidden');
+        }
+
+        async function deleteAssociacao(id) {
+            const confirmed = await customConfirm("Tem certeza que deseja remover esta associação permanentemente?", "Excluir Associação", true);
+            if(confirmed) {
+                DB.associacoes = DB.associacoes.filter(a => a.id !== id);
+                logActivity(`Removeu a associação ID ${id}`, 'Exclusão Associação');
+                showToast('Associação removida com sucesso.');
+                render();
+            }
+        }
+
+        function handleSaveAssociacao(e) {
+            e.preventDefault();
+            const nome = document.getElementById('na-nome').value;
+            if (state.editingId) {
+                const a = DB.associacoes.find(x => x.id === state.editingId);
+                if (a) {
+                    a.nome = nome;
+                    a.ramo = document.getElementById('na-ramo').value;
+                    a.lucrativo = document.getElementById('na-lucrativo').checked;
+                    a.localFundacao = document.getElementById('na-fundacao').value;
+                    a.lider = document.getElementById('na-lider').value;
+                    a.localOperacao = document.getElementById('na-operacao').value;
+                    logActivity(`Editou associação/órgão ID ${a.id}: ${nome}`, 'Edição Associação');
+                    showToast('Associação atualizada com sucesso.');
+                }
+            } else {
+                DB.associacoes.push({
+                    id: DB.associacoes.length > 0 ? Math.max(...DB.associacoes.map(a=>a.id)) + 1 : 1,
+                    nome: nome,
+                    ramo: document.getElementById('na-ramo').value,
+                    lucrativo: document.getElementById('na-lucrativo').checked,
+                    localFundacao: document.getElementById('na-fundacao').value,
+                    lider: document.getElementById('na-lider').value,
+                    localOperacao: document.getElementById('na-operacao').value,
+                    preCadastrado: false
+                });
+                logActivity(`Cadastrou nova associação/órgão: ${nome}`, 'Cadastro Associação');
+                showToast('Associação cadastrada com sucesso.');
+            }
+            document.getElementById('modalAssociacao').classList.add('hidden');
+            render();
+        }
+
+        function render() {
+            const container = document.getElementById('app-container');
+            if (state.currentView === 'login' || !state.currentUser) {
+                container.innerHTML = renderLogin();
+            } else {
+                let mainContent = '';
+                switch(state.currentView) {
+                    case 'dashboard': mainContent = renderDashboard(); break;
+                    case 'usuarios': mainContent = renderUsuarios(); break;
+                    case 'produtos': mainContent = renderProdutos(); break;
+                    case 'auditoria': mainContent = renderAuditoria(); break;
+                    case 'associacoes': mainContent = renderAssociacoes(); break;
+                    case 'destinacao': mainContent = renderDestinacao(); break;
+                    default: mainContent = renderDashboard();
+                }
+                container.innerHTML = `${renderSidebar()}${mainContent}`;
+            }
+            lucide.createIcons();
+        }
+
+        document.addEventListener('DOMContentLoaded', () => { render(); });
+    </script>
+</body>
+</html>
